@@ -8,19 +8,23 @@ from typing import Any
 
 from .runtime_state import RuntimeState, TerminalRunStatus
 from .tools.run_command import CommandResult
+from .tools.screenshot import ScreenshotResult
 
 
 class RunStore:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.command_logs_dir = root / "command_logs"
+        self.screenshots_dir = root / "screenshots"
         self.trace_path = root / "trace.jsonl"
         self.summary_path = root / "summary.json"
         self.command_index_path = self.command_logs_dir / "index.jsonl"
+        self.screenshot_index_path = self.screenshots_dir / "index.jsonl"
 
     def prepare(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         self.command_logs_dir.mkdir(parents=True, exist_ok=True)
+        self.screenshots_dir.mkdir(parents=True, exist_ok=True)
 
     def write_command_result(self, step_id: int, result: CommandResult) -> dict[str, str]:
         command_result_id = f"cmd_{step_id:04d}"
@@ -45,6 +49,28 @@ class RunStore:
             "command_result_id": command_result_id,
             "stdout_path": str(stdout_path),
             "stderr_path": str(stderr_path),
+        }
+
+    def write_screenshot_result(self, result: ScreenshotResult, description: str = "") -> dict[str, str]:
+        screenshot_path = Path(result.path)
+        screenshot_ref = f"screenshot:{result.screenshot_id}"
+        index_record = {
+            "screenshot_id": result.screenshot_id,
+            "path": str(screenshot_path),
+            "step_id": result.step_id,
+            "timestamp": result.timestamp,
+            "source_action_id": result.source_action_id,
+            "description": description,
+            "resolution": {"width": result.width, "height": result.height},
+            "success": result.success,
+        }
+        with self.screenshot_index_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(index_record, ensure_ascii=False) + "\n")
+
+        return {
+            "screenshot_id": result.screenshot_id,
+            "screenshot_path": str(screenshot_path),
+            "artifact_ref": screenshot_ref,
         }
 
     def append_trace(
@@ -79,6 +105,7 @@ class RunStore:
             "final_reason": state.run.terminated_reason,
             "step_count": state.metrics.step_count,
             "tool_call_count": state.metrics.tool_call_count,
+            "screenshot_count": state.metrics.screenshot_count,
             "command_count": state.metrics.command_count,
             "started_at": state.run.created_at,
             "ended_at": datetime.now(UTC).isoformat(),

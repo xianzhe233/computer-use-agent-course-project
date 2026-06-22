@@ -4,11 +4,15 @@ version = "0.1.0"
 description = "Terminal-first MVP for a Windows-oriented computer use agent"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+  "pillow>=11.2.1",
+]
 
 [dependency-groups]
 dev = [
+  "mypy>=1.16.1",
   "pytest>=8.4.1",
+  "ruff>=0.12.1",
 ]
 
 [build-system]
@@ -21,3 +25,13 @@ packages = ["src/computer_use_agent"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src", "tests"]
+ignore_missing_imports = true
+warn_unused_ignores = true
