@@ -36,6 +36,24 @@ class RunState:
 
 
 @dataclass(slots=True)
+class ControlState:
+    max_steps: int = 0
+    step_timeout_seconds: int = 10
+    allowed_tools: list[str] = field(default_factory=list)
+    terminated_reason: str = ""
+
+
+@dataclass(slots=True)
+class ObservationState:
+    latest_screenshot_id: str = ""
+    latest_screenshot_path: str = ""
+    latest_command_result_id: str = ""
+    active_window_title: str = ""
+    desktop_resolution: dict[str, int] = field(default_factory=dict)
+    last_observation_summary: str = ""
+
+
+@dataclass(slots=True)
 class ActionRecord:
     action_id: str
     action_type: str
@@ -63,6 +81,7 @@ class MetricsState:
     screenshot_count: int = 0
     command_count: int = 0
     rework_count: int = 0
+    consecutive_failures: int = 0
     runtime_seconds: float = 0.0
 
 
@@ -79,6 +98,8 @@ class ErrorState:
 class RuntimeState:
     run: RunState
     task: TaskState
+    control: ControlState = field(default_factory=ControlState)
+    observation: ObservationState = field(default_factory=ObservationState)
     last_action: LastActionState = field(default_factory=LastActionState)
     metrics: MetricsState = field(default_factory=MetricsState)
     errors: ErrorState = field(default_factory=ErrorState)
@@ -87,8 +108,22 @@ class RuntimeState:
         return asdict(self)
 
 
-def create_runtime_state(user_request: str, run_id: str, root_dir: Path) -> RuntimeState:
+def create_runtime_state(
+    user_request: str,
+    run_id: str,
+    root_dir: Path,
+    *,
+    task_type: str = "terminal",
+    allowed_tools: list[str] | None = None,
+    max_steps: int = 0,
+    step_timeout_seconds: int = 10,
+) -> RuntimeState:
     created_at = datetime.now(UTC).isoformat()
-    task = TaskState(user_request=user_request, goal_summary=user_request.strip())
+    task = TaskState(user_request=user_request, task_type=task_type, goal_summary=user_request.strip())
     run = RunState(run_id=run_id, created_at=created_at, root_dir=str(root_dir))
-    return RuntimeState(run=run, task=task)
+    control = ControlState(
+        max_steps=max_steps,
+        step_timeout_seconds=step_timeout_seconds,
+        allowed_tools=allowed_tools or [],
+    )
+    return RuntimeState(run=run, task=task, control=control)

@@ -16,6 +16,7 @@ from .screenshot import (
     ScreenshotResult,
     take_screenshot,
 )
+from .wait import WaitResult, wait
 
 __all__ = [
     "click",
@@ -35,4 +36,6 @@ __all__ = [
     "run_command",
     "take_screenshot",
     "type_text",
+    "wait",
+    "WaitResult",
 ]
