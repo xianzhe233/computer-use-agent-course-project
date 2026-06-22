@@ -1,3 +1,6 @@
+AGENTS.md
+doc/
+tasks/
 config/models.local.json
 .venv/
 .pytest_cache/
