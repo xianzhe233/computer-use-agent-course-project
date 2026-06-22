@@ -34,6 +34,7 @@ class ElementLocationResult:
     reason: str = ""
     candidates: list[ElementLocationCandidate] = field(default_factory=list)
     error: dict[str, str] | None = None
+    suggested_next_steps: list[str] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
 
@@ -125,6 +126,7 @@ def locate_element(
             timestamp=located_at,
             reason="query must not be empty",
             error={"code": "INVALID_QUERY", "message": "locate_element requires a non-empty query"},
+            suggested_next_steps=["provide a non-empty element description", "take_screenshot before retrying"],
             artifacts=artifacts,
             metadata={"backend": active_backend.__class__.__name__},
         )
@@ -143,6 +145,7 @@ def locate_element(
                 "code": "SCREENSHOT_NOT_FOUND",
                 "message": f"Screenshot not found: {screenshot_path}",
             },
+            suggested_next_steps=["take_screenshot", "retry locate_element with the new screenshot"],
             artifacts=artifacts,
             metadata={"backend": active_backend.__class__.__name__},
         )
@@ -167,6 +170,7 @@ def locate_element(
                 "code": "LOCATOR_BACKEND_FAILED",
                 "message": f"{type(exc).__name__}: {exc}",
             },
+            suggested_next_steps=["take_screenshot", "wait", "retry locate_element", "abort current GUI strategy"],
             artifacts=artifacts,
             metadata={"backend": active_backend.__class__.__name__},
         )
@@ -188,6 +192,7 @@ def locate_element(
                 "code": "ELEMENT_NOT_FOUND",
                 "message": f"No element matched query: {normalized_query}",
             },
+            suggested_next_steps=["take_screenshot", "scroll or reveal more UI", "retry locate_element"],
             artifacts=artifacts,
             metadata={"backend": active_backend.__class__.__name__},
         )

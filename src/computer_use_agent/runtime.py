@@ -197,6 +197,8 @@ class TerminalRuntime:
             )
 
             if not result["success"]:
+                if self._can_continue_after_tool_failure(state=state, planned_action=planned_action):
+                    continue
                 mark_run_finished(state, TerminalRunStatus.FAILED, f"{planned_action.tool_name} failed at step {step_id}")
                 break
         else:
@@ -262,7 +264,7 @@ class TerminalRuntime:
                     if state.observation.latest_location_bbox is None:
                         return {
                             "code": "LOCATION_REQUIRED",
-                            "message": "click target=last_located requires a prior locate_element result",
+                            "message": "click target=last_located requires a successful prior locate_element result",
                         }
                 elif not self._has_coordinates(planned_action.tool_args, keys=("x", "y")):
                     return {"code": "INVALID_COORDINATES", "message": "click requires x/y or target=last_located"}
@@ -505,6 +507,17 @@ class TerminalRuntime:
             state.observation.latest_location_bbox = tuple(bbox) if isinstance(bbox, list | tuple) else None
             state.observation.latest_location_confidence = float(result.get("confidence", 0.0))
             state.observation.latest_location_source = str(result.get("source") or "")
+            state.observation.latest_location_suggested_next_steps = self._string_list(
+                result.get("suggested_next_steps", [])
+            )
+            if success:
+                state.metrics.consecutive_location_failures = 0
+                state.observation.latest_location_error_code = ""
+            else:
+                state.metrics.consecutive_location_failures += 1
+                error = result.get("error") or {}
+                state.observation.latest_location_error_code = str(error.get("code", "LOCATE_ELEMENT_FAILED"))
+                state.observation.latest_location_bbox = None
             result_summary = str(result.get("reason") or "located element candidate")
         else:
             latest_screenshot_ref = self._artifact_ref(artifact_refs, prefix="screenshot:")
@@ -545,6 +558,14 @@ class TerminalRuntime:
             state.errors.last_error_code = str(error.get("code", "TOOL_FAILED"))
             state.errors.last_error_message = str(error.get("message", result_summary))
             state.errors.last_failed_tool = planned_action.tool_name
+            if planned_action.tool_name == "locate_element" and state.metrics.consecutive_location_failures >= 2:
+                state.errors.blocked = True
+                state.errors.block_reason = "连续定位失败，禁止继续盲点；请重新截图、滚动/展开界面或放弃当前方案。"
+
+    def _can_continue_after_tool_failure(self, *, state: RuntimeState, planned_action: PlannedAction) -> bool:
+        if planned_action.tool_name != "locate_element":
+            return False
+        return state.metrics.consecutive_location_failures < 2
 
     def _resolve_click_coordinates(
         self,
@@ -559,6 +580,12 @@ class TerminalRuntime:
             x, y = bbox_center(state.observation.latest_location_bbox)
             return x, y, "last_located"
         return self._required_int(tool_args, "x"), self._required_int(tool_args, "y"), ""
+
+    @staticmethod
+    def _string_list(value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value]
 
     @staticmethod
     def _artifact_ref(artifact_refs: list[str], *, prefix: str) -> str | None:

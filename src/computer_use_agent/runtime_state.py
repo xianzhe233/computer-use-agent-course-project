@@ -53,6 +53,8 @@ class ObservationState:
     latest_location_bbox: tuple[int, int, int, int] | None = None
     latest_location_confidence: float = 0.0
     latest_location_source: str = ""
+    latest_location_error_code: str = ""
+    latest_location_suggested_next_steps: list[str] = field(default_factory=list)
     active_window_title: str = ""
     desktop_resolution: dict[str, int] = field(default_factory=dict)
     last_observation_summary: str = ""
@@ -87,6 +89,7 @@ class MetricsState:
     command_count: int = 0
     rework_count: int = 0
     consecutive_failures: int = 0
+    consecutive_location_failures: int = 0
     runtime_seconds: float = 0.0
 
 
