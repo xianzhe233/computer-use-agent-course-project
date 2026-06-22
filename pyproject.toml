@@ -5,7 +5,11 @@ description = "Terminal-first MVP for a Windows-oriented computer use agent"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+  "comtypes>=1.4.11; platform_system == 'Windows'",
+  "fuzzywuzzy>=0.18.0",
   "pillow>=11.2.1",
+  "pyautogui>=0.9.54",
+  "python-levenshtein>=0.27.1",
 ]
 
 [dependency-groups]
@@ -29,9 +33,15 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+exclude = [
+  "src/computer_use_agent/_vendor",
+]
 
 [tool.mypy]
 python_version = "3.13"
 files = ["src", "tests"]
+exclude = [
+  "src/computer_use_agent/_vendor",
+]
 ignore_missing_imports = true
 warn_unused_ignores = true

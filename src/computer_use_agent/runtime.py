@@ -12,7 +12,6 @@ from .sample_tasks import DemoTask, PlannedAction, build_completion_hint, find_d
 from .tools import (
     GuiActionResult,
     GuiAutomationBackend,
-    ImageGrabBackend,
     PowerShellBackend,
     ScreenshotBackend,
     ScreenshotResult,
@@ -46,7 +45,7 @@ class TerminalRuntime:
         self.workspace = workspace
         self.runs_root = runs_root
         self.command_backend = command_backend or PowerShellBackend()
-        self.screenshot_backend = screenshot_backend or ImageGrabBackend()
+        self.screenshot_backend = screenshot_backend
         self.gui_backend = gui_backend
         self.agent = agent or TerminalMainAgent()
         self.max_steps = max_steps

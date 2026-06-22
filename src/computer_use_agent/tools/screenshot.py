@@ -47,6 +47,14 @@ class ImageGrabBackend:
         return image.size
 
 
+def create_default_screenshot_backend() -> ScreenshotBackend:
+    try:
+        from .windows_use_desktop import WindowsUseDesktopBackend
+    except Exception:
+        return ImageGrabBackend()
+    return WindowsUseDesktopBackend()
+
+
 def take_screenshot(
     *,
     screenshot_id: str,
@@ -58,7 +66,7 @@ def take_screenshot(
 ) -> ScreenshotResult:
     started_at = time.perf_counter()
     captured_at = datetime.now(UTC).isoformat()
-    active_backend = backend or ImageGrabBackend()
+    active_backend = backend or create_default_screenshot_backend()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     try:

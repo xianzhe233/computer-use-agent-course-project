@@ -41,7 +41,7 @@ class GuiAutomationBackend(Protocol):
         caret_position: CaretPosition = "idle",
         press_enter: bool = False,
     ) -> None: ...
-    def hotkey(self, keys: tuple[str, ...]) -> None: ...
+    def hotkey(self, shortcut: str) -> None: ...
     def drag(self, x1: int, y1: int, x2: int, y2: int) -> None: ...
 
 
@@ -86,8 +86,8 @@ class PyAutoGuiBackend:
         if press_enter:
             self._pyautogui.press("enter")
 
-    def hotkey(self, keys: tuple[str, ...]) -> None:
-        self._pyautogui.hotkey(*keys)
+    def hotkey(self, shortcut: str) -> None:
+        self._pyautogui.hotkey(*normalize_shortcut(shortcut))
 
     def drag(self, x1: int, y1: int, x2: int, y2: int) -> None:
         self._pyautogui.moveTo(x=x1, y=y1, duration=0.1)
@@ -127,6 +127,14 @@ def _wrap_gui_action(
     return GuiActionResult(tool_name=tool_name, success=True, duration_ms=duration_ms, result=result)
 
 
+def create_default_gui_backend() -> GuiAutomationBackend:
+    try:
+        from .windows_use_desktop import WindowsUseDesktopBackend
+    except Exception:
+        return PyAutoGuiBackend()
+    return WindowsUseDesktopBackend()
+
+
 def click(
     x: int,
     y: int,
@@ -135,7 +143,7 @@ def click(
     clicks: int = 1,
     backend: GuiAutomationBackend | None = None,
 ) -> GuiActionResult:
-    active_backend = backend or PyAutoGuiBackend()
+    active_backend = backend or create_default_gui_backend()
     return _wrap_gui_action(
         "click",
         lambda: active_backend.click(x=x, y=y, button=button, clicks=clicks),
@@ -153,7 +161,7 @@ def type_text(
     press_enter: bool = False,
     backend: GuiAutomationBackend | None = None,
 ) -> GuiActionResult:
-    active_backend = backend or PyAutoGuiBackend()
+    active_backend = backend or create_default_gui_backend()
     return _wrap_gui_action(
         "type_text",
         lambda: active_backend.type_text(
@@ -176,11 +184,11 @@ def type_text(
 
 
 def hotkey(shortcut: str, *, backend: GuiAutomationBackend | None = None) -> GuiActionResult:
-    active_backend = backend or PyAutoGuiBackend()
+    active_backend = backend or create_default_gui_backend()
     normalized = normalize_shortcut(shortcut)
     return _wrap_gui_action(
         "hotkey",
-        lambda: active_backend.hotkey(normalized),
+        lambda: active_backend.hotkey(shortcut),
         {"shortcut": shortcut, "normalized_keys": list(normalized)},
     )
 
@@ -193,7 +201,7 @@ def drag(
     *,
     backend: GuiAutomationBackend | None = None,
 ) -> GuiActionResult:
-    active_backend = backend or PyAutoGuiBackend()
+    active_backend = backend or create_default_gui_backend()
     return _wrap_gui_action(
         "drag",
         lambda: active_backend.drag(x1=x1, y1=y1, x2=x2, y2=y2),

@@ -3,6 +3,7 @@ from .gui_actions import (
     GuiAutomationBackend,
     PyAutoGuiBackend,
     click,
+    create_default_gui_backend,
     drag,
     hotkey,
     normalize_shortcut,
@@ -14,6 +15,7 @@ from .screenshot import (
     ScreenshotBackend,
     ScreenshotExecutionError,
     ScreenshotResult,
+    create_default_screenshot_backend,
     take_screenshot,
 )
 from .wait import WaitResult, wait
@@ -22,6 +24,8 @@ __all__ = [
     "click",
     "CommandExecutionError",
     "CommandResult",
+    "create_default_gui_backend",
+    "create_default_screenshot_backend",
     "drag",
     "GuiActionResult",
     "GuiAutomationBackend",

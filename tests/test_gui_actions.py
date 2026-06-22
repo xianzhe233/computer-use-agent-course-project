@@ -37,8 +37,8 @@ class FakeGuiBackend:
         if self.fail_tool == "type_text":
             raise RuntimeError("type failed")
 
-    def hotkey(self, keys: tuple[str, ...]) -> None:
-        self.calls.append(("hotkey", keys, {}))
+    def hotkey(self, shortcut: str) -> None:
+        self.calls.append(("hotkey", (shortcut,), {}))
         if self.fail_tool == "hotkey":
             raise RuntimeError("hotkey failed")
 

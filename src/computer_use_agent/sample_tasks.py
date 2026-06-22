@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 TaskActionKind = Literal["run_command", "take_screenshot", "click", "type_text", "hotkey", "drag", "wait"]
+NOTEPAD_START_COMMAND = 'Start-Process -FilePath "$env:WINDIR\\System32\\notepad.exe"'
 
 
 @dataclass(slots=True)
@@ -82,7 +83,7 @@ DEMO_TASKS: tuple[DemoTask, ...] = (
             ),
             PlannedAction(
                 tool_name="run_command",
-                tool_args={"command": "Start-Process notepad"},
+                tool_args={"command": NOTEPAD_START_COMMAND},
                 expected_observation="notepad launch requested",
             ),
             PlannedAction(

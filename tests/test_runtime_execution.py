@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from computer_use_agent.runtime import TerminalRuntime
+from computer_use_agent.sample_tasks import NOTEPAD_START_COMMAND
 from computer_use_agent.tools.run_command import CommandResult, PowerShellBackend
 
 
@@ -59,8 +60,8 @@ class FakeGuiBackend:
             )
         )
 
-    def hotkey(self, keys: tuple[str, ...]) -> None:
-        self.calls.append(("hotkey", keys, {}))
+    def hotkey(self, shortcut: str) -> None:
+        self.calls.append(("hotkey", (shortcut,), {}))
 
     def drag(self, x1: int, y1: int, x2: int, y2: int) -> None:
         self.calls.append(("drag", (x1, y1, x2, y2), {}))
@@ -115,7 +116,7 @@ def test_runtime_persists_gui_artifacts_and_trace(tmp_path: Path) -> None:
     command_backend = SequenceBackend(
         [
             CommandResult(
-                command="Start-Process notepad",
+                command=NOTEPAD_START_COMMAND,
                 stdout="",
                 stderr="",
                 exit_code=0,
