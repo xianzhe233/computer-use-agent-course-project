@@ -35,8 +35,8 @@
     - [17:43] 验证结果：状态模型已包含 `task`、`run`、`last_action`、`metrics`、`errors` 等 MVP 1 必需字段，并通过测试覆盖 `running/success/failed/aborted` 终止状态。
 
 3. 完成 US-002 `run_command` 工具最小版本（复用引用项目代码）
-    - [待执行] 做了什么：
-    - [待执行] 验证结果：
+    - [17:52] 做了什么：基于 `Windows-Use` 的 `desktop.execute_command` / `shell_tool` 实现，新增 `src/computer_use_agent/tools/run_command.py`，复用其 PowerShell `-EncodedCommand` 执行逻辑，补上结构化 `CommandResult` 返回、超时字段和风险策略预留元数据。
+    - [17:52] 验证结果：`run_command` 现已满足 `command/stdout/stderr/exit_code/success` 结构要求，支持 `timeout_s` 参数，并通过单元测试验证空命令校验与结构化返回。
 
 4. 完成 US-003 run 目录、命令日志与最小 trace
     - [待执行] 做了什么：
