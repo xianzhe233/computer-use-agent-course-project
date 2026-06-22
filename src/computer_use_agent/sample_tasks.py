@@ -113,6 +113,59 @@ DEMO_TASKS: tuple[DemoTask, ...] = (
         ),
         success_hint="记事本已打开且输入了 demo 文本",
     ),
+    DemoTask(
+        name="locate_notepad_editor_and_type",
+        description="打开记事本，通过描述定位编辑区，点击 bbox 中心后输入文本",
+        user_requests=(
+            "用描述定位记事本编辑区并输入文字",
+            "演示描述驱动的 gui 定位点击",
+            "先定位记事本编辑区再输入 demo 文本",
+        ),
+        task_type="gui",
+        action_plan=(
+            PlannedAction(
+                tool_name="take_screenshot",
+                tool_args={"description": "before launching notepad for element location demo"},
+                expected_observation="desktop screenshot captured before launching notepad",
+            ),
+            PlannedAction(
+                tool_name="run_command",
+                tool_args={"command": NOTEPAD_START_COMMAND},
+                expected_observation="notepad launch requested",
+            ),
+            PlannedAction(
+                tool_name="wait",
+                tool_args={"seconds": 2},
+                expected_observation="notepad window should become active",
+            ),
+            PlannedAction(
+                tool_name="take_screenshot",
+                tool_args={"description": "notepad ready before locating editor area"},
+                expected_observation="notepad screenshot ready for locate_element",
+            ),
+            PlannedAction(
+                tool_name="locate_element",
+                tool_args={"query": "编辑区"},
+                expected_observation="editor area bbox candidate returned",
+            ),
+            PlannedAction(
+                tool_name="click",
+                tool_args={"target": "last_located"},
+                expected_observation="clicked the center of the located editor bbox",
+            ),
+            PlannedAction(
+                tool_name="type_text",
+                tool_args={"text": "computer use agent locate element demo", "press_enter": True},
+                expected_observation="demo text typed after description-driven click",
+            ),
+            PlannedAction(
+                tool_name="take_screenshot",
+                tool_args={"description": "after locate_element click and typing demo text"},
+                expected_observation="screenshot evidence after description-driven interaction",
+            ),
+        ),
+        success_hint="已通过描述定位记事本编辑区，点击定位结果中心并输入 demo 文本",
+    ),
 )
 
 
