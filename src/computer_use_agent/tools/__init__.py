@@ -1,3 +1,11 @@
+from .element_location import (
+    ElementLocationCandidate,
+    ElementLocationResult,
+    ElementLocatorBackend,
+    NullElementLocatorBackend,
+    bbox_center,
+    locate_element,
+)
 from .gui_actions import (
     GuiActionResult,
     GuiAutomationBackend,
@@ -21,17 +29,23 @@ from .screenshot import (
 from .wait import WaitResult, wait
 
 __all__ = [
+    "bbox_center",
     "click",
     "CommandExecutionError",
     "CommandResult",
     "create_default_gui_backend",
     "create_default_screenshot_backend",
     "drag",
+    "ElementLocationCandidate",
+    "ElementLocationResult",
+    "ElementLocatorBackend",
     "GuiActionResult",
     "GuiAutomationBackend",
     "hotkey",
     "ImageGrabBackend",
+    "locate_element",
     "normalize_shortcut",
+    "NullElementLocatorBackend",
     "PowerShellBackend",
     "PyAutoGuiBackend",
     "ScreenshotBackend",

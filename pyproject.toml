@@ -40,8 +40,10 @@ exclude = [
 [tool.mypy]
 python_version = "3.13"
 files = ["src", "tests"]
-exclude = [
-  "src/computer_use_agent/_vendor",
-]
+exclude = "(^|[\\/])src[\\/]computer_use_agent[\\/]_vendor([\\/]|$)"
 ignore_missing_imports = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["computer_use_agent._vendor.*"]
+ignore_errors = true
