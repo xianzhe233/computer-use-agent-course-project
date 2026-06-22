@@ -48,6 +48,11 @@ class ObservationState:
     latest_screenshot_id: str = ""
     latest_screenshot_path: str = ""
     latest_command_result_id: str = ""
+    latest_location_result_id: str = ""
+    latest_location_query: str = ""
+    latest_location_bbox: tuple[int, int, int, int] | None = None
+    latest_location_confidence: float = 0.0
+    latest_location_source: str = ""
     active_window_title: str = ""
     desktop_resolution: dict[str, int] = field(default_factory=dict)
     last_observation_summary: str = ""

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -58,6 +59,48 @@ class NullElementLocatorBackend:
         return []
 
 
+class WindowsUIAElementLocator:
+    def locate(
+        self,
+        *,
+        query: str,
+        screenshot_path: Path,
+        screenshot_id: str = "",
+    ) -> list[ElementLocationCandidate]:
+        del screenshot_path, screenshot_id
+        from computer_use_agent._vendor.windows_use import uia
+
+        foreground = uia.GetForegroundControl()
+        normalized_query = query.strip()
+        candidates: list[ElementLocationCandidate] = []
+
+        exact_control = foreground.Control(Name=normalized_query)
+        if exact_control.Exists(maxSearchSeconds=0.5):
+            candidates.append(_control_to_candidate(exact_control, normalized_query, 0.97, "exact Name match"))
+
+        regex = re.escape(normalized_query)
+        regex_control = foreground.Control(RegexName=f"(?i).*{regex}.*")
+        if regex_control.Exists(maxSearchSeconds=0.5):
+            candidates.append(
+                _control_to_candidate(regex_control, normalized_query, 0.9, "regex Name match in foreground window")
+            )
+
+        subname_control = foreground.Control(SubName=normalized_query)
+        if subname_control.Exists(maxSearchSeconds=0.5):
+            candidates.append(
+                _control_to_candidate(subname_control, normalized_query, 0.84, "substring Name match in foreground window")
+            )
+
+        return _deduplicate_candidates(candidates)
+
+
+def create_default_element_locator_backend() -> ElementLocatorBackend:
+    try:
+        return WindowsUIAElementLocator()
+    except Exception:
+        return NullElementLocatorBackend()
+
+
 def locate_element(
     *,
     query: str,
@@ -68,7 +111,7 @@ def locate_element(
     started_at = time.perf_counter()
     located_at = datetime.now(UTC).isoformat()
     normalized_query = query.strip()
-    active_backend = backend or NullElementLocatorBackend()
+    active_backend = backend or create_default_element_locator_backend()
     artifacts = [f"screenshot:{screenshot_id}"] if screenshot_id else []
 
     if not normalized_query:
@@ -170,3 +213,31 @@ def locate_element(
 def bbox_center(bbox: tuple[int, int, int, int]) -> tuple[int, int]:
     x1, y1, x2, y2 = bbox
     return ((x1 + x2) // 2, (y1 + y2) // 2)
+
+
+def _control_to_candidate(control: object, query: str, confidence: float, reason: str) -> ElementLocationCandidate:
+    rect = getattr(control, "BoundingRectangle")
+    metadata = {
+        "query": query,
+        "control_name": getattr(control, "Name", ""),
+        "automation_id": getattr(control, "AutomationId", ""),
+        "class_name": getattr(control, "ClassName", ""),
+    }
+    return ElementLocationCandidate(
+        bbox=(int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)),
+        confidence=confidence,
+        source="uia",
+        reason=reason,
+        metadata=metadata,
+    )
+
+
+def _deduplicate_candidates(candidates: list[ElementLocationCandidate]) -> list[ElementLocationCandidate]:
+    deduplicated: list[ElementLocationCandidate] = []
+    seen: set[tuple[int, int, int, int]] = set()
+    for candidate in candidates:
+        if candidate.bbox in seen:
+            continue
+        deduplicated.append(candidate)
+        seen.add(candidate.bbox)
+    return deduplicated

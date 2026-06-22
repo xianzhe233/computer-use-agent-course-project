@@ -10,14 +10,17 @@ from .run_store import RunStore, mark_run_finished
 from .runtime_state import RuntimeState, TerminalRunStatus, create_runtime_state
 from .sample_tasks import DemoTask, PlannedAction, build_completion_hint, find_demo_task
 from .tools import (
+    ElementLocatorBackend,
     GuiActionResult,
     GuiAutomationBackend,
     PowerShellBackend,
     ScreenshotBackend,
     ScreenshotResult,
+    bbox_center,
     click,
     drag,
     hotkey,
+    locate_element,
     run_command,
     take_screenshot,
     type_text,
@@ -38,6 +41,7 @@ class TerminalRuntime:
         command_backend: PowerShellBackend | None = None,
         screenshot_backend: ScreenshotBackend | None = None,
         gui_backend: GuiAutomationBackend | None = None,
+        element_locator_backend: ElementLocatorBackend | None = None,
         agent: TerminalMainAgent | None = None,
         max_steps: int = 8,
         screenshot_after_gui_action: bool = True,
@@ -47,6 +51,7 @@ class TerminalRuntime:
         self.command_backend = command_backend or PowerShellBackend()
         self.screenshot_backend = screenshot_backend
         self.gui_backend = gui_backend
+        self.element_locator_backend = element_locator_backend
         self.agent = agent or TerminalMainAgent()
         self.max_steps = max_steps
         self.screenshot_after_gui_action = screenshot_after_gui_action
@@ -240,9 +245,27 @@ class TerminalRuntime:
                 command = str(planned_action.tool_args.get("command", "")).strip()
                 if not command:
                     return {"code": "INVALID_TOOL_ARGS", "message": "command must not be empty"}
+            case "take_screenshot":
+                return None
+            case "locate_element":
+                query = str(planned_action.tool_args.get("query", "")).strip()
+                if not query:
+                    return {"code": "INVALID_QUERY", "message": "locate_element requires query"}
+                if not state.observation.latest_screenshot_path:
+                    return {
+                        "code": "SCREENSHOT_REQUIRED",
+                        "message": "locate_element requires an existing screenshot observation",
+                    }
             case "click":
-                if not self._has_coordinates(planned_action.tool_args, keys=("x", "y")):
-                    return {"code": "INVALID_COORDINATES", "message": "click requires x and y"}
+                target = str(planned_action.tool_args.get("target", "")).strip()
+                if target == "last_located":
+                    if state.observation.latest_location_bbox is None:
+                        return {
+                            "code": "LOCATION_REQUIRED",
+                            "message": "click target=last_located requires a prior locate_element result",
+                        }
+                elif not self._has_coordinates(planned_action.tool_args, keys=("x", "y")):
+                    return {"code": "INVALID_COORDINATES", "message": "click requires x/y or target=last_located"}
             case "drag":
                 if not self._has_coordinates(planned_action.tool_args, keys=("x1", "y1", "x2", "y2")):
                     return {
@@ -304,14 +327,34 @@ class TerminalRuntime:
             result_dict["tool_name"] = "take_screenshot"
             return result_dict, artifact_refs
 
+        if tool_name == "locate_element":
+            screenshot_path = Path(state.observation.latest_screenshot_path)
+            screenshot_id = state.observation.latest_screenshot_id
+            location_result = locate_element(
+                query=str(tool_args["query"]),
+                screenshot_path=screenshot_path,
+                screenshot_id=screenshot_id,
+                backend=self.element_locator_backend,
+            )
+            location_artifacts = store.write_location_result(step_id=step_id, result=location_result)
+            artifact_refs.extend(location_result.artifacts)
+            artifact_refs.append(location_artifacts["artifact_ref"])
+            result_dict = asdict(location_result)
+            return result_dict, artifact_refs
+
         if tool_name == "click":
+            click_x, click_y, resolved_from = self._resolve_click_coordinates(state=state, tool_args=tool_args)
             gui_result = click(
-                self._required_int(tool_args, "x"),
-                self._required_int(tool_args, "y"),
+                click_x,
+                click_y,
                 button=self._button_value(tool_args.get("button", "left")),
                 clicks=self._optional_int(tool_args.get("clicks"), default=1) or 1,
                 backend=self.gui_backend,
             )
+            gui_result.result["x"] = click_x
+            gui_result.result["y"] = click_y
+            if resolved_from:
+                gui_result.result["resolved_from"] = resolved_from
             return self._attach_post_action_screenshot(
                 state=state,
                 store=store,
@@ -455,10 +498,19 @@ class TerminalRuntime:
                 "height": int(result.get("height", 0)),
             }
             result_summary = str(result.get("note") or result.get("path"))
+        elif planned_action.tool_name == "locate_element":
+            state.observation.latest_location_result_id = self._artifact_id(artifact_refs, prefix="location:")
+            state.observation.latest_location_query = str(result.get("query", ""))
+            bbox = result.get("bbox")
+            state.observation.latest_location_bbox = tuple(bbox) if isinstance(bbox, list | tuple) else None
+            state.observation.latest_location_confidence = float(result.get("confidence", 0.0))
+            state.observation.latest_location_source = str(result.get("source") or "")
+            result_summary = str(result.get("reason") or "located element candidate")
         else:
-            if artifact_refs and artifact_refs[-1].startswith("screenshot:"):
+            latest_screenshot_ref = self._artifact_ref(artifact_refs, prefix="screenshot:")
+            if latest_screenshot_ref is not None:
                 state.metrics.screenshot_count += 1
-                state.observation.latest_screenshot_id = artifact_refs[-1].split(":", 1)[1]
+                state.observation.latest_screenshot_id = latest_screenshot_ref.split(":", 1)[1]
                 state.observation.latest_screenshot_path = str(
                     Path(state.run.root_dir) / "screenshots" / f"{state.observation.latest_screenshot_id}.png"
                 )
@@ -467,6 +519,9 @@ class TerminalRuntime:
                 result_summary = f"typed {typed_length} characters"
             elif planned_action.tool_name == "wait":
                 result_summary = f"waited {result.get('result', {}).get('seconds', 0)} seconds"
+            elif planned_action.tool_name == "click":
+                click_result = result.get("result", {})
+                result_summary = f"clicked at ({click_result.get('x')}, {click_result.get('y')})"
             else:
                 result_summary = f"{planned_action.tool_name} executed"
 
@@ -490,6 +545,34 @@ class TerminalRuntime:
             state.errors.last_error_code = str(error.get("code", "TOOL_FAILED"))
             state.errors.last_error_message = str(error.get("message", result_summary))
             state.errors.last_failed_tool = planned_action.tool_name
+
+    def _resolve_click_coordinates(
+        self,
+        *,
+        state: RuntimeState,
+        tool_args: dict[str, object],
+    ) -> tuple[int, int, str]:
+        target = str(tool_args.get("target", "")).strip()
+        if target == "last_located":
+            if state.observation.latest_location_bbox is None:
+                raise ValueError("No latest located bbox available")
+            x, y = bbox_center(state.observation.latest_location_bbox)
+            return x, y, "last_located"
+        return self._required_int(tool_args, "x"), self._required_int(tool_args, "y"), ""
+
+    @staticmethod
+    def _artifact_ref(artifact_refs: list[str], *, prefix: str) -> str | None:
+        for artifact_ref in reversed(artifact_refs):
+            if artifact_ref.startswith(prefix):
+                return artifact_ref
+        return None
+
+    @staticmethod
+    def _artifact_id(artifact_refs: list[str], *, prefix: str) -> str:
+        artifact_ref = TerminalRuntime._artifact_ref(artifact_refs, prefix=prefix)
+        if artifact_ref is None:
+            return ""
+        return artifact_ref.split(":", 1)[1]
 
     @staticmethod
     def _has_coordinates(tool_args: dict[str, object], *, keys: tuple[str, ...]) -> bool:

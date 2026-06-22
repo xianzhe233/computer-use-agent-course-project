@@ -3,7 +3,9 @@ from .element_location import (
     ElementLocationResult,
     ElementLocatorBackend,
     NullElementLocatorBackend,
+    WindowsUIAElementLocator,
     bbox_center,
+    create_default_element_locator_backend,
     locate_element,
 )
 from .gui_actions import (
@@ -33,6 +35,7 @@ __all__ = [
     "click",
     "CommandExecutionError",
     "CommandResult",
+    "create_default_element_locator_backend",
     "create_default_gui_backend",
     "create_default_screenshot_backend",
     "drag",
@@ -47,6 +50,7 @@ __all__ = [
     "normalize_shortcut",
     "NullElementLocatorBackend",
     "PowerShellBackend",
+    "WindowsUIAElementLocator",
     "PyAutoGuiBackend",
     "ScreenshotBackend",
     "ScreenshotExecutionError",

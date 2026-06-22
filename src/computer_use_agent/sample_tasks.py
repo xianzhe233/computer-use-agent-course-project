@@ -4,7 +4,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-TaskActionKind = Literal["run_command", "take_screenshot", "click", "type_text", "hotkey", "drag", "wait"]
+TaskActionKind = Literal[
+    "run_command",
+    "take_screenshot",
+    "locate_element",
+    "click",
+    "type_text",
+    "hotkey",
+    "drag",
+    "wait",
+]
 NOTEPAD_START_COMMAND = 'Start-Process -FilePath "$env:WINDIR\\System32\\notepad.exe"'
 
 

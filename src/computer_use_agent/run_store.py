@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .runtime_state import RuntimeState, TerminalRunStatus
+from .tools.element_location import ElementLocationResult
 from .tools.run_command import CommandResult
 from .tools.screenshot import ScreenshotResult
 
@@ -20,11 +21,14 @@ class RunStore:
         self.summary_path = root / "summary.json"
         self.command_index_path = self.command_logs_dir / "index.jsonl"
         self.screenshot_index_path = self.screenshots_dir / "index.jsonl"
+        self.location_results_dir = root / "locations"
+        self.location_index_path = self.location_results_dir / "index.jsonl"
 
     def prepare(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         self.command_logs_dir.mkdir(parents=True, exist_ok=True)
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
+        self.location_results_dir.mkdir(parents=True, exist_ok=True)
 
     def write_command_result(self, step_id: int, result: CommandResult) -> dict[str, str]:
         command_result_id = f"cmd_{step_id:04d}"
@@ -71,6 +75,34 @@ class RunStore:
             "screenshot_id": result.screenshot_id,
             "screenshot_path": str(screenshot_path),
             "artifact_ref": screenshot_ref,
+        }
+
+    def write_location_result(self, step_id: int, result: ElementLocationResult) -> dict[str, str]:
+        location_result_id = f"loc_{step_id:04d}"
+        result_path = self.location_results_dir / f"{location_result_id}.json"
+        result_path.write_text(json.dumps(asdict(result), ensure_ascii=False, indent=2), encoding="utf-8")
+
+        index_record = {
+            "location_result_id": location_result_id,
+            "step_id": step_id,
+            "query": result.query,
+            "screenshot_id": result.screenshot_id,
+            "screenshot_path": result.screenshot_path,
+            "success": result.success,
+            "bbox": list(result.bbox) if result.bbox else None,
+            "confidence": result.confidence,
+            "source": result.source,
+            "reason": result.reason,
+            "result_path": str(result_path),
+            "timestamp": result.timestamp,
+        }
+        with self.location_index_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(index_record, ensure_ascii=False) + "\n")
+
+        return {
+            "location_result_id": location_result_id,
+            "result_path": str(result_path),
+            "artifact_ref": f"location:{location_result_id}",
         }
 
     def append_trace(

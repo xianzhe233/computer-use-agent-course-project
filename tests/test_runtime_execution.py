@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 
-from computer_use_agent.runtime import TerminalRuntime
-from computer_use_agent.sample_tasks import NOTEPAD_START_COMMAND
+from computer_use_agent.runtime import TerminalRuntime, TerminalMainAgent
+from computer_use_agent.sample_tasks import NOTEPAD_START_COMMAND, DemoTask, PlannedAction
+from computer_use_agent.tools.element_location import ElementLocationCandidate
 from computer_use_agent.tools.run_command import CommandResult, PowerShellBackend
 
 
@@ -65,6 +66,46 @@ class FakeGuiBackend:
 
     def drag(self, x1: int, y1: int, x2: int, y2: int) -> None:
         self.calls.append(("drag", (x1, y1, x2, y2), {}))
+
+
+class FakeElementLocatorBackend:
+    def __init__(self, candidates: list[ElementLocationCandidate]) -> None:
+        self.candidates = candidates
+        self.calls: list[tuple[str, Path, str]] = []
+
+    def locate(self, *, query: str, screenshot_path: Path, screenshot_id: str = "") -> list[ElementLocationCandidate]:
+        self.calls.append((query, screenshot_path, screenshot_id))
+        return self.candidates
+
+
+class LocateThenClickAgent(TerminalMainAgent):
+    def plan(self, user_request: str) -> DemoTask | None:
+        if user_request != "定位并点击记事本输入区":
+            return super().plan(user_request)
+        return DemoTask(
+            name="locate_then_click_notepad",
+            description="先截图并定位输入区，再点击定位结果中心",
+            user_requests=("定位并点击记事本输入区",),
+            task_type="gui",
+            action_plan=(
+                PlannedAction(
+                    tool_name="take_screenshot",
+                    tool_args={"description": "before locating notepad editor"},
+                    expected_observation="screenshot ready for locate_element",
+                ),
+                PlannedAction(
+                    tool_name="locate_element",
+                    tool_args={"query": "编辑区"},
+                    expected_observation="bbox candidate available",
+                ),
+                PlannedAction(
+                    tool_name="click",
+                    tool_args={"target": "last_located"},
+                    expected_observation="click on located center point",
+                ),
+            ),
+            success_hint="已根据描述定位并点击目标区域",
+        )
 
 
 def test_runtime_persists_command_logs_and_trace(tmp_path: Path) -> None:
@@ -168,3 +209,58 @@ def test_runtime_persists_gui_artifacts_and_trace(tmp_path: Path) -> None:
         if record["event_type"] == "tool_execution" and record["payload"]["result"]["tool_name"] == "type_text"
     )
     assert type_execution["artifact_refs"] == ["screenshot:ss_0002"]
+
+
+def test_runtime_separates_locate_and_click_steps_in_trace(tmp_path: Path) -> None:
+    screenshot_backend = FakeScreenshotBackend()
+    gui_backend = FakeGuiBackend()
+    locator_backend = FakeElementLocatorBackend(
+        [
+            ElementLocationCandidate(
+                bbox=(10, 20, 210, 120),
+                confidence=0.93,
+                source="uia",
+                reason="matched notepad editor area",
+            )
+        ]
+    )
+    runtime = TerminalRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        screenshot_backend=screenshot_backend,
+        gui_backend=gui_backend,
+        element_locator_backend=locator_backend,
+        agent=LocateThenClickAgent(),
+    )
+
+    state = runtime.run("定位并点击记事本输入区")
+
+    assert state.run.status == "success"
+    assert state.observation.latest_location_bbox == (10, 20, 210, 120)
+    assert state.observation.latest_location_query == "编辑区"
+    assert state.observation.latest_location_source == "uia"
+    assert gui_backend.calls == [("click", (110, 70), {"button": "left", "clicks": 1})]
+
+    run_dir = tmp_path / "runs" / state.run.run_id
+    location_index_lines = (run_dir / "locations" / "index.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    assert len(location_index_lines) == 1
+    location_index = json.loads(location_index_lines[0])
+    assert location_index["bbox"] == [10, 20, 210, 120]
+    assert location_index["reason"] == "matched notepad editor area"
+
+    trace_records = [json.loads(line) for line in (run_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+    execution_results = [record["payload"]["result"]["tool_name"] for record in trace_records if record["event_type"] == "tool_execution"]
+    assert execution_results == ["take_screenshot", "locate_element", "click"]
+
+    locate_record = next(
+        record
+        for record in trace_records
+        if record["event_type"] == "tool_execution" and record["payload"]["result"]["tool_name"] == "locate_element"
+    )
+    click_record = next(
+        record
+        for record in trace_records
+        if record["event_type"] == "tool_execution" and record["payload"]["result"]["tool_name"] == "click"
+    )
+    assert locate_record["artifact_refs"] == ["screenshot:ss_0001", "location:loc_0002"]
+    assert click_record["payload"]["result"]["result"]["resolved_from"] == "last_located"
