@@ -1,0 +1,34 @@
+{
+  "providers": {
+    "openrouter": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "apiStyle": "openai-compatible",
+      "apiKey": "<OPENROUTER_API_KEY>",
+      "notes": "用于 GUI 元素定位模型 UI-TARS。"
+    },
+    "mimo-token-plan-cn": {
+      "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+      "apiStyle": "openai-compatible",
+      "apiKey": "<MIMO_TOKEN_PLAN_CN_API_KEY>",
+      "notes": "用于主 agent 与 examiner 的多模态模型。"
+    }
+  },
+  "roles": {
+    "locator": {
+      "provider": "openrouter",
+      "model": "uitars",
+      "upstreamFamily": "UI-TARS",
+      "purpose": "GUI 元素定位"
+    },
+    "mainAgent": {
+      "provider": "mimo-token-plan-cn",
+      "model": "mimo-v2.5",
+      "purpose": "主执行 agent"
+    },
+    "examiner": {
+      "provider": "mimo-token-plan-cn",
+      "model": "mimo-v2.5",
+      "purpose": "验收 examiner"
+    }
+  }
+}
