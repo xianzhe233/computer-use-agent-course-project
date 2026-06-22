@@ -2,7 +2,7 @@
 
 - **时间**：2026-06-22 17:35
 - **目标**：初始化 git 仓库并完成 `tasks/prd-mvp-1-terminal-agent.md` 全部 US，按 US 分次提交
-- **状态**：进行中
+- **状态**：已完成
 - **相关文件**：
   - `AGENTS.md`
   - `doc/architecture.md`
@@ -15,12 +15,12 @@
 
 ## 任务拆解
 
-- [ ] 初始化 git 仓库并确认 PRD/参考约束
-- [ ] 完成 US-001 runtime state 基础模型
-- [ ] 完成 US-002 `run_command` 工具最小版本（复用引用项目代码）
-- [ ] 完成 US-003 run 目录、命令日志与最小 trace
-- [ ] 完成 US-004 terminal 主循环与样例任务
-- [ ] 更新相关文档并归档任务
+- [x] 初始化 git 仓库并确认 PRD/参考约束
+- [x] 完成 US-001 runtime state 基础模型
+- [x] 完成 US-002 `run_command` 工具最小版本（复用引用项目代码）
+- [x] 完成 US-003 run 目录、命令日志与最小 trace
+- [x] 完成 US-004 terminal 主循环与样例任务
+- [x] 更新相关文档并归档任务
 
 ## 执行记录
 
@@ -52,11 +52,11 @@
 
 ## 结果
 
-- 完成内容：
-- 未完成内容：MVP 1 代码、验证、提交与归档尚未完成。
+- 完成内容：已初始化 Git 仓库并建立基线提交；完成 MVP 1 的 runtime state、基于 `Windows-Use` PowerShell 执行逻辑复用的 `run_command`、run store 与最小 trace、terminal 主循环、样例任务与 CLI 入口；按 US 分别完成提交并通过测试。
+- 未完成内容：无。
 
 ## 收尾检查
 
-- [ ] 状态已更新
-- [ ] 相关文档已同步（按需要可选更新 `doc/architecture.md` `doc/progress.md` `doc/log.md`）
-- [ ] 任务文件已移入 `doc/agent_log/`
+- [x] 状态已更新
+- [x] 相关文档已同步（按需要可选更新 `doc/architecture.md` `doc/progress.md` `doc/log.md`）
+- [x] 任务文件已移入 `doc/agent_log/`
