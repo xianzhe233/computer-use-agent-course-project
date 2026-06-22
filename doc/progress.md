@@ -17,6 +17,7 @@
 | 2026-06-22 13:50 | 已完成 | 评估过 `ralphi` 作为阶段推进方案，但后续确认其交互形态不适配当前实际工作方式，因此不再作为本项目的主开发控制手段。 |
 | 2026-06-22 13:59 | 已完成 | 已将 MVP 1~5 分别整理为 `tasks/prd-mvp-*.md` 五份独立 PRD 文档，后续按阶段推进开发时，统一以这些 PRD 作为范围控制、验收约束与任务拆解输入。 |
 | 2026-06-22 16:26 | 已完成 | 已移除项目中的 `ralphi` / skill 相关安装产物、runtime 配置与工作流文档，仅保留 `tasks/` 下的阶段 PRD；当前项目回到“设计文档 + 阶段 PRD”驱动的开发方式。 |
+| 2026-06-22 18:06 | 已完成 | 完成 MVP 1 terminal-only 主体实现：新增 Python 工程骨架、最小 runtime state、基于 `Windows-Use` PowerShell `shell_tool`/`execute_command` 思路复用的 `run_command` 工具、run 目录落盘、最小 trace/summary、自然语言样例任务主循环与 CLI 演示入口。 |
 
 ## 使用约定
 

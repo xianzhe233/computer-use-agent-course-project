@@ -104,6 +104,26 @@
 - `resources/`：外部素材、样例或原始数据
 - `output/`：导出结果或构建产物
 
+## 当前源码目录
+
+```text
+.
+├── src/
+│   └── computer_use_agent/
+│       ├── cli.py
+│       ├── runtime.py
+│       ├── runtime_state.py
+│       ├── run_store.py
+│       ├── sample_tasks.py
+│       └── tools/
+├── tests/
+└── runs/
+```
+
+- `src/computer_use_agent/`：MVP 1 terminal-only agent 源码目录，当前包含 runtime state、`run_command` 工具、run store、样例任务与 CLI 入口。
+- `tests/`：MVP 1 单元测试目录，覆盖状态模型、命令工具与最小主循环落盘行为。
+- `runs/`：运行产物目录，保存每次 demo 执行的 trace、summary 与命令日志；通过忽略规则排除版本控制。
+
 新增以上目录时，请同步补三件事：
 
 1. 在本文件登记目录职责

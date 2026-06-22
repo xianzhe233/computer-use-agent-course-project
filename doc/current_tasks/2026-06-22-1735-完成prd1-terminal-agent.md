@@ -39,16 +39,16 @@
     - [17:52] 验证结果：`run_command` 现已满足 `command/stdout/stderr/exit_code/success` 结构要求，支持 `timeout_s` 参数，并通过单元测试验证空命令校验与结构化返回。
 
 4. 完成 US-003 run 目录、命令日志与最小 trace
-    - [待执行] 做了什么：
-    - [待执行] 验证结果：
+    - [18:01] 做了什么：新增 `src/computer_use_agent/run_store.py`，实现 `runs/<run_id>/command_logs/`、`trace.jsonl`、`summary.json` 与命令日志索引落盘；主循环执行后自动写入结构化产物。
+    - [18:01] 验证结果：测试已覆盖独立 run 目录创建、命令输出日志落盘、最小 trace 写入和 summary 汇总。
 
 5. 完成 US-004 terminal 主循环与样例任务
-    - [待执行] 做了什么：
-    - [待执行] 验证结果：
+    - [18:01] 做了什么：新增 `src/computer_use_agent/runtime.py`、`src/computer_use_agent/sample_tasks.py`、`src/computer_use_agent/cli.py`，实现 terminal-only 主循环、样例任务匹配和 CLI 入口，支持用自然语言触发一个或多个 `run_command` 动作。
+    - [18:01] 验证结果：测试已覆盖支持任务成功结束与不支持任务失败结束两条路径；下一步补一次真实 CLI 演示验证。
 
 6. 更新相关文档并归档任务
-    - [待执行] 做了什么：
-    - [待执行] 验证结果：
+    - [18:06] 做了什么：同步更新 `README.md`、`doc/architecture.md`、`doc/progress.md`、`doc/log.md` 与任务记录，补充源码目录、运行产物目录、版本控制规则调整与 MVP 1 完成情况。
+    - [18:06] 验证结果：文档已反映当前真实结构与工作方式，后续仅剩任务归档收尾。
 
 ## 结果
 
