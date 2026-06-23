@@ -1,8 +1,14 @@
 import json
+from pathlib import Path
 
 import pytest
+from PIL import Image
 
+from computer_use_agent.runtime_state import create_runtime_state
 from computer_use_agent.terminal_agent import (
+    LLMComputerAgent,
+    OpenAICompatibleChatClient,
+    OpenAICompatibleModelConfig,
     TerminalAgentProtocolError,
     parse_terminal_agent_decision,
     truncate_text,
@@ -59,3 +65,36 @@ def test_truncate_text_keeps_short_text_and_compacts_long_text() -> None:
     assert "truncated" in truncated
     assert len(truncated) <= 80
     assert truncated != "a" * 200
+
+
+def test_llm_computer_agent_includes_latest_screenshot_as_image_content(tmp_path: Path) -> None:
+    screenshot_path = tmp_path / "ss_0001.png"
+    Image.new("RGB", (32, 24), "white").save(screenshot_path)
+    state = create_runtime_state(
+        user_request="观察截图",
+        run_id="run_test",
+        root_dir=tmp_path,
+        task_type="hybrid",
+        allowed_tools=["take_screenshot"],
+        max_steps=3,
+    )
+    state.observation.latest_screenshot_id = "ss_0001"
+    state.observation.latest_screenshot_path = str(screenshot_path)
+    client = OpenAICompatibleChatClient(
+        config=OpenAICompatibleModelConfig(
+            provider="fake",
+            base_url="https://example.invalid/v1",
+            api_key="fake-key",
+            model="fake-model",
+        )
+    )
+    agent = LLMComputerAgent(client)
+
+    messages = agent._build_messages(state=state, workspace=tmp_path, history=[])
+
+    content = messages[1]["content"]
+    assert isinstance(content, list)
+    assert content[0]["type"] == "text"
+    assert "latest_screenshot:ss_0001" in content[0]["text"]
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")

@@ -129,7 +129,7 @@ def test_autonomous_terminal_runtime_emits_progress_messages(tmp_path: Path) -> 
     assert state.run.status == "success"
     joined_output = "\n".join(progress_messages)
     assert "RUN       : run_" in joined_output
-    assert "STEP 1/8 · planning" in joined_output
+    assert "STEP 1/20 · planning" in joined_output
     assert "Command   :" in joined_output
     assert "PS> Get-ChildItem" in joined_output
     assert "Stdout    :" in joined_output

@@ -7,6 +7,9 @@ requires-python = ">=3.13"
 dependencies = [
   "comtypes>=1.4.11; platform_system == 'Windows'",
   "fuzzywuzzy>=0.18.0",
+  "langchain>=0.3.26",
+  "langchain-openai>=0.3.28",
+  "langgraph>=0.6.1",
   "pillow>=11.2.1",
   "pyautogui>=0.9.54",
   "python-levenshtein>=0.27.1",

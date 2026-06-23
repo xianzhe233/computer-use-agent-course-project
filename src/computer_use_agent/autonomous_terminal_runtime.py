@@ -6,7 +6,9 @@ from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
+from .graph_runtime import AgentGraphState, compile_linear_agent_graph
 from .run_store import RunStore, mark_run_finished
 from .runtime_state import RuntimeState, TerminalRunStatus, create_runtime_state
 from .terminal_agent import (
@@ -22,12 +24,7 @@ ProgressCallback = Callable[[str], None]
 
 
 class AutonomousTerminalRuntime:
-    """Terminal-only autonomous runtime.
-
-    This runtime is intentionally narrower than the existing demo `TerminalRuntime`:
-    it only exposes `run_command` to the agent and treats `finish_request` as final success
-    without examiner review. GUI tools are not imported or registered here.
-    """
+    """Terminal-only autonomous runtime driven by a LangGraph loop."""
 
     def __init__(
         self,
@@ -36,7 +33,7 @@ class AutonomousTerminalRuntime:
         *,
         command_backend: PowerShellBackend | None = None,
         agent: AutonomousTerminalAgent | None = None,
-        max_steps: int = 8,
+        max_steps: int = 20,
         step_timeout_seconds: int = 180,
         max_consecutive_failures: int = 3,
         model_config_path: Path = Path("config/models.local.json"),
@@ -88,11 +85,46 @@ class AutonomousTerminalRuntime:
         )
         self._emit_run_header(run_id=run_id, user_request=user_request, state=state)
 
-        for step_id in range(1, self.max_steps + 1):
-            state.run.current_step = step_id
-            action_id = f"act_{step_id:04d}"
+        app = self._build_graph(state=state, store=store, history=history)
+        app.invoke({"step_id": 0, "terminated": False, "artifact_refs": []})
 
-            self._emit_step_header(step_id=step_id, title="planning")
+        state.control.terminated_reason = state.run.terminated_reason
+        state.metrics.runtime_seconds = round(time.perf_counter() - started_at, 3)
+        if state.run.status != TerminalRunStatus.SUCCESS:
+            store.append_trace(
+                step_id=state.run.current_step,
+                actor="runtime",
+                event_type="termination",
+                payload={
+                    "status": state.run.status,
+                    "reason": state.run.terminated_reason,
+                    "errors": asdict(state.errors),
+                },
+                status="failed" if state.run.status == TerminalRunStatus.FAILED else "aborted",
+            )
+        store.write_summary(state)
+        self._emit_run_footer(state=state, run_dir=run_dir)
+        return state
+
+    def _build_graph(
+        self,
+        *,
+        state: RuntimeState,
+        store: RunStore,
+        history: list[dict[str, object]],
+    ):
+        def plan_node(graph_state: AgentGraphState) -> AgentGraphState:
+            next_step = int(graph_state.get("step_id", 0)) + 1
+            if next_step > self.max_steps:
+                state.errors.last_error_code = "MAX_STEPS_EXCEEDED"
+                state.errors.last_error_message = "Reached max steps before finish_request"
+                mark_run_finished(state, TerminalRunStatus.ABORTED, "Maximum step limit reached")
+                self._emit("Abort     : maximum step limit reached")
+                return {"step_id": next_step - 1, "terminated": True, "route": "terminated"}
+
+            state.run.current_step = next_step
+            action_id = f"act_{next_step:04d}"
+            self._emit_step_header(step_id=next_step, title="planning")
             self._emit("Planning  : asking model for the next action")
             try:
                 decision = self._agent().decide(state=state, workspace=self.workspace, history=history)
@@ -100,48 +132,47 @@ class AutonomousTerminalRuntime:
                 self._record_agent_error(
                     state=state,
                     store=store,
-                    step_id=step_id,
+                    step_id=next_step,
                     action_id=action_id,
                     error=exc,
                 )
                 self._emit(f"Decision  : failed ({type(exc).__name__}: {exc})")
                 mark_run_finished(state, TerminalRunStatus.FAILED, "Agent decision failed")
-                break
+                return {
+                    "step_id": next_step,
+                    "action_id": action_id,
+                    "terminated": True,
+                    "route": "terminated",
+                }
 
             store.append_trace(
-                step_id=step_id,
+                step_id=next_step,
                 actor="main_agent",
                 event_type="agent_decision",
                 payload=decision.to_trace_payload(),
                 status="success",
             )
-
             if decision.kind == "finish_request":
-                completion_claim = decision.completion_claim.strip() or "Agent requested finish"
-                self._emit_finish_request(decision=decision, completion_claim=completion_claim)
-                mark_run_finished(state, TerminalRunStatus.SUCCESS, completion_claim)
-                state.last_action.action_id = action_id
-                state.last_action.actor = "main_agent"
-                state.last_action.action_type = "finish_request"
-                state.last_action.action_args = {
-                    "completion_claim": completion_claim,
-                    "supporting_evidence": decision.supporting_evidence,
-                    "remaining_uncertainty": decision.remaining_uncertainty,
+                return {
+                    "step_id": next_step,
+                    "action_id": action_id,
+                    "decision": decision,
+                    "decision_kind": decision.kind,
+                    "route": "finish",
                 }
-                state.last_action.result_status = "success"
-                state.last_action.result_summary = completion_claim
-                state.last_action.artifact_refs = decision.supporting_evidence
-                store.append_trace(
-                    step_id=step_id,
-                    actor="main_agent",
-                    event_type="finish_request",
-                    payload=state.last_action.action_args,
-                    status="success",
-                    artifact_refs=decision.supporting_evidence,
-                )
-                break
+            self._emit_tool_call(step_id=next_step, decision=decision)
+            return {
+                "step_id": next_step,
+                "action_id": action_id,
+                "decision": decision,
+                "decision_kind": decision.kind,
+                "route": "validate",
+            }
 
-            self._emit_tool_call(step_id=step_id, decision=decision)
+        def validate_node(graph_state: AgentGraphState) -> AgentGraphState:
+            decision = cast(TerminalAgentDecision, graph_state["decision"])
+            step_id = int(graph_state["step_id"])
+            action_id = str(graph_state["action_id"])
             validation_error = self._validate_tool_call(state=state, decision=decision)
             if validation_error is not None:
                 self._record_validation_error(
@@ -158,7 +189,7 @@ class AutonomousTerminalRuntime:
                     TerminalRunStatus.FAILED,
                     f"Agent emitted invalid terminal action: {validation_error['message']}",
                 )
-                break
+                return {"step_id": step_id, "terminated": True, "route": "terminated"}
 
             store.append_trace(
                 step_id=step_id,
@@ -167,7 +198,12 @@ class AutonomousTerminalRuntime:
                 payload={"tool_name": "run_command", "tool_args": decision.tool_args},
                 status="success",
             )
+            return {"step_id": step_id, "route": "execute"}
 
+        def execute_node(graph_state: AgentGraphState) -> AgentGraphState:
+            decision = cast(TerminalAgentDecision, graph_state["decision"])
+            step_id = int(graph_state["step_id"])
+            action_id = str(graph_state["action_id"])
             self._emit(f"Running   : timeout={self.step_timeout_seconds}s")
             result, artifact_refs, command_result_id = self._execute_command_step(
                 store=store,
@@ -191,7 +227,6 @@ class AutonomousTerminalRuntime:
                     artifact_refs=artifact_refs,
                 )
             )
-
             result_payload = asdict(result)
             result_payload["tool_name"] = "run_command"
             self._emit_command_result(step_id=step_id, result=result, artifact_refs=artifact_refs)
@@ -216,7 +251,6 @@ class AutonomousTerminalRuntime:
                 status="success" if result.success else "failed",
                 artifact_refs=artifact_refs,
             )
-
             if state.metrics.consecutive_failures >= self.max_consecutive_failures:
                 state.errors.blocked = True
                 state.errors.block_reason = "连续命令失败次数达到上限，停止继续自主执行。"
@@ -226,30 +260,51 @@ class AutonomousTerminalRuntime:
                     "Maximum consecutive command failures reached",
                 )
                 self._emit("Abort     : maximum consecutive command failures reached")
-                break
-        else:
-            state.errors.last_error_code = "MAX_STEPS_EXCEEDED"
-            state.errors.last_error_message = "Reached max steps before finish_request"
-            mark_run_finished(state, TerminalRunStatus.ABORTED, "Maximum step limit reached")
-            self._emit("Abort     : maximum step limit reached")
+                return {"step_id": step_id, "terminated": True, "route": "terminated"}
+            return {
+                "step_id": step_id,
+                "artifact_refs": artifact_refs,
+                "command_result_id": command_result_id,
+                "route": "loop",
+            }
 
-        state.control.terminated_reason = state.run.terminated_reason
-        state.metrics.runtime_seconds = round(time.perf_counter() - started_at, 3)
-        if state.run.status != TerminalRunStatus.SUCCESS:
+        def finish_node(graph_state: AgentGraphState) -> AgentGraphState:
+            decision = cast(TerminalAgentDecision, graph_state["decision"])
+            step_id = int(graph_state["step_id"])
+            action_id = str(graph_state["action_id"])
+            completion_claim = decision.completion_claim.strip() or "Agent requested finish"
+            self._emit_finish_request(decision=decision, completion_claim=completion_claim)
+            mark_run_finished(state, TerminalRunStatus.SUCCESS, completion_claim)
+            state.last_action.action_id = action_id
+            state.last_action.actor = "main_agent"
+            state.last_action.action_type = "finish_request"
+            state.last_action.action_args = {
+                "completion_claim": completion_claim,
+                "supporting_evidence": decision.supporting_evidence,
+                "remaining_uncertainty": decision.remaining_uncertainty,
+            }
+            state.last_action.result_status = "success"
+            state.last_action.result_summary = completion_claim
+            state.last_action.artifact_refs = decision.supporting_evidence
             store.append_trace(
-                step_id=state.run.current_step,
-                actor="runtime",
-                event_type="termination",
-                payload={
-                    "status": state.run.status,
-                    "reason": state.run.terminated_reason,
-                    "errors": asdict(state.errors),
-                },
-                status="failed" if state.run.status == TerminalRunStatus.FAILED else "aborted",
+                step_id=step_id,
+                actor="main_agent",
+                event_type="finish_request",
+                payload=state.last_action.action_args,
+                status="success",
+                artifact_refs=decision.supporting_evidence,
             )
-        store.write_summary(state)
-        self._emit_run_footer(state=state, run_dir=run_dir)
-        return state
+            return {"step_id": step_id, "terminated": True, "route": "end"}
+
+        return compile_linear_agent_graph(
+            plan_node=plan_node,
+            validate_node=validate_node,
+            execute_node=execute_node,
+            finish_node=finish_node,
+            route_after_plan=lambda graph_state: cast(Any, graph_state["route"]),
+            route_after_validate=lambda graph_state: cast(Any, graph_state["route"]),
+            route_after_execute=lambda graph_state: cast(Any, graph_state["route"]),
+        )
 
     def _emit(self, message: str) -> None:
         if self.progress_callback is not None:
