@@ -50,7 +50,7 @@ class ObservationState:
     latest_command_result_id: str = ""
     latest_location_result_id: str = ""
     latest_location_query: str = ""
-    latest_location_bbox: tuple[int, int, int, int] | None = None
+    latest_location_point: tuple[int, int] | None = None
     latest_location_confidence: float = 0.0
     latest_location_source: str = ""
     latest_location_error_code: str = ""

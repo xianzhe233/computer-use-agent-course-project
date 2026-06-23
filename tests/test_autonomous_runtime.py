@@ -76,13 +76,15 @@ class FakeGuiBackend:
 
 
 class FakeElementLocatorBackend:
-    def __init__(self, candidates: list[ElementLocationCandidate]) -> None:
+    def __init__(self, candidates: list[ElementLocationCandidate] | dict[str, list[ElementLocationCandidate]]) -> None:
         self.candidates = candidates
         self.calls: list[tuple[str, Path, str]] = []
 
     def locate(self, *, query: str, screenshot_path: Path, screenshot_id: str = "") -> list[ElementLocationCandidate]:
         self.calls.append((query, screenshot_path, screenshot_id))
-        return self.candidates
+        if isinstance(self.candidates, dict):
+            return list(self.candidates.get(query, []))
+        return list(self.candidates)
 
 
 class SequenceBackend(PowerShellBackend):
@@ -102,10 +104,10 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
     locator_backend = FakeElementLocatorBackend(
         [
             ElementLocationCandidate(
-                bbox=(100, 200, 500, 400),
+                point=(300, 300),
                 confidence=0.94,
-                source="uia",
-                reason="matched editor area",
+                source="vision",
+                reason="matched editor point",
             )
         ]
     )
@@ -159,7 +161,7 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
     assert "run_command" in state.control.allowed_tools
     assert state.metrics.screenshot_count == 3
     assert state.metrics.command_count == 0
-    assert state.observation.latest_location_bbox == (100, 200, 500, 400)
+    assert state.observation.latest_location_point == (300, 300)
     assert state.observation.latest_screenshot_id == "ss_0003"
     assert gui_backend.calls == [
         ("click", (300, 300), {"button": "left", "clicks": 1}),
@@ -194,6 +196,144 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
         if record["event_type"] == "tool_execution" and record["payload"]["result"]["tool_name"] == "click"
     )
     assert click_record["payload"]["result"]["result"]["resolved_from"] == "last_located"
+
+
+def test_autonomous_runtime_auto_locates_semantic_click_and_type_text(tmp_path: Path) -> None:
+    screenshot_backend = FakeScreenshotBackend()
+    gui_backend = FakeGuiBackend()
+    locator_backend = FakeElementLocatorBackend(
+        {
+            "搜索框": [
+                ElementLocationCandidate(
+                    point=(150, 85),
+                    confidence=0.93,
+                    source="vision",
+                    reason="matched search input",
+                )
+            ],
+            "提交按钮": [
+                ElementLocationCandidate(
+                    point=(460, 330),
+                    confidence=0.91,
+                    source="vision",
+                    reason="matched submit button",
+                )
+            ],
+        }
+    )
+    agent = ScriptedComputerAgent(
+        [
+            TerminalAgentDecision(
+                kind="tool_call",
+                tool_name="take_screenshot",
+                tool_args={"description": "observe the app"},
+            ),
+            TerminalAgentDecision(
+                kind="tool_call",
+                tool_name="type_text",
+                tool_args={"text": "hello", "target_query": "搜索框", "press_enter": False},
+            ),
+            TerminalAgentDecision(
+                kind="tool_call",
+                tool_name="click",
+                tool_args={"target_query": "提交按钮"},
+            ),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="已通过语义定位完成输入和点击",
+                supporting_evidence=["location:loc_0002", "location:loc_0003", "screenshot:ss_0003"],
+            ),
+        ]
+    )
+    runtime = AutonomousComputerRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        screenshot_backend=screenshot_backend,
+        gui_backend=gui_backend,
+        element_locator_backend=locator_backend,
+        agent=agent,
+    )
+
+    state = runtime.run("在搜索框输入 hello 然后点击提交按钮")
+
+    assert state.run.status == "success"
+    assert locator_backend.calls[0][0] == "搜索框"
+    assert locator_backend.calls[1][0] == "提交按钮"
+    assert gui_backend.calls == [
+        (
+            "type_text",
+            ("hello",),
+            {
+                "x": 150,
+                "y": 85,
+                "clear": False,
+                "caret_position": "idle",
+                "press_enter": False,
+            },
+        ),
+        ("click", (460, 330), {"button": "left", "clicks": 1}),
+    ]
+    assert state.metrics.screenshot_count == 3
+    assert state.observation.latest_location_query == "提交按钮"
+
+
+def test_autonomous_runtime_auto_locates_drag_start_and_end(tmp_path: Path) -> None:
+    screenshot_backend = FakeScreenshotBackend()
+    gui_backend = FakeGuiBackend()
+    locator_backend = FakeElementLocatorBackend(
+        {
+            "开始滑块": [
+                ElementLocationCandidate(
+                    point=(120, 420),
+                    confidence=0.9,
+                    source="vision",
+                    reason="matched drag start",
+                )
+            ],
+            "结束滑块": [
+                ElementLocationCandidate(
+                    point=(520, 420),
+                    confidence=0.92,
+                    source="vision",
+                    reason="matched drag end",
+                )
+            ],
+        }
+    )
+    agent = ScriptedComputerAgent(
+        [
+            TerminalAgentDecision(
+                kind="tool_call",
+                tool_name="take_screenshot",
+                tool_args={"description": "before drag"},
+            ),
+            TerminalAgentDecision(
+                kind="tool_call",
+                tool_name="drag",
+                tool_args={"start_query": "开始滑块", "end_query": "结束滑块"},
+            ),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="已通过语义定位完成拖拽",
+                supporting_evidence=["location:loc_0002", "screenshot:ss_0002"],
+            ),
+        ]
+    )
+    runtime = AutonomousComputerRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        screenshot_backend=screenshot_backend,
+        gui_backend=gui_backend,
+        element_locator_backend=locator_backend,
+        agent=agent,
+    )
+
+    state = runtime.run("把滑块从开始拖到结束")
+
+    assert state.run.status == "success"
+    assert [call[0] for call in locator_backend.calls] == ["开始滑块", "结束滑块"]
+    assert gui_backend.calls == [("drag", (120, 420, 520, 420), {})]
+    assert state.metrics.screenshot_count == 2
 
 
 def test_autonomous_computer_runtime_allows_recovery_after_validation_failure(tmp_path: Path) -> None:

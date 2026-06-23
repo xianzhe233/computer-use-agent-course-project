@@ -3,8 +3,7 @@ from .element_location import (
     ElementLocationResult,
     ElementLocatorBackend,
     NullElementLocatorBackend,
-    WindowsUIAElementLocator,
-    bbox_center,
+    UITarsElementLocator,
     create_default_element_locator_backend,
     locate_element,
 )
@@ -31,7 +30,6 @@ from .screenshot import (
 from .wait import WaitResult, wait
 
 __all__ = [
-    "bbox_center",
     "click",
     "CommandExecutionError",
     "CommandResult",
@@ -50,7 +48,6 @@ __all__ = [
     "normalize_shortcut",
     "NullElementLocatorBackend",
     "PowerShellBackend",
-    "WindowsUIAElementLocator",
     "PyAutoGuiBackend",
     "ScreenshotBackend",
     "ScreenshotExecutionError",
@@ -58,6 +55,7 @@ __all__ = [
     "run_command",
     "take_screenshot",
     "type_text",
+    "UITarsElementLocator",
     "wait",
     "WaitResult",
 ]

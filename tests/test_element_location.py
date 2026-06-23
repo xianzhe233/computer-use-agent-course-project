@@ -2,7 +2,6 @@ from pathlib import Path
 
 from computer_use_agent.tools.element_location import (
     ElementLocationCandidate,
-    bbox_center,
     locate_element,
 )
 
@@ -38,16 +37,16 @@ def test_locate_element_returns_best_candidate_with_required_fields(tmp_path: Pa
     backend = FakeElementLocatorBackend(
         candidates=[
             ElementLocationCandidate(
-                bbox=(10, 20, 70, 80),
+                point=(10, 20),
                 confidence=0.66,
-                source="uia",
-                reason="partial title match",
+                source="vision",
+                reason="partial area match",
             ),
             ElementLocationCandidate(
-                bbox=(100, 120, 220, 180),
+                point=(100, 120),
                 confidence=0.91,
-                source="hybrid",
-                reason="uia candidate aligned with visual region",
+                source="vision",
+                reason="best visual point",
             ),
         ]
     )
@@ -60,10 +59,10 @@ def test_locate_element_returns_best_candidate_with_required_fields(tmp_path: Pa
     )
 
     assert result.success is True
-    assert result.bbox == (100, 120, 220, 180)
+    assert result.point == (100, 120)
     assert result.confidence == 0.91
-    assert result.reason == "uia candidate aligned with visual region"
-    assert result.source == "hybrid"
+    assert result.reason == "best visual point"
+    assert result.source == "vision"
     assert result.artifacts == ["screenshot:ss_0001"]
     assert len(result.candidates) == 2
     assert backend.calls == [("保存按钮", screenshot_path, "ss_0001")]
@@ -119,7 +118,3 @@ def test_locate_element_returns_backend_failure(tmp_path: Path) -> None:
         "code": "LOCATOR_BACKEND_FAILED",
         "message": "RuntimeError: backend failed",
     }
-
-
-def test_bbox_center_returns_center_point() -> None:
-    assert bbox_center((10, 20, 30, 60)) == (20, 40)

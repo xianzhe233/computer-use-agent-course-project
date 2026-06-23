@@ -26,14 +26,15 @@ from .terminal_agent import (
 )
 from .tools import (
     CommandResult,
+    ElementLocationResult,
     ElementLocatorBackend,
     GuiActionResult,
     GuiAutomationBackend,
     PowerShellBackend,
     ScreenshotBackend,
     ScreenshotResult,
-    bbox_center,
     click,
+    create_default_element_locator_backend,
     drag,
     hotkey,
     locate_element,
@@ -57,6 +58,8 @@ AUTONOMOUS_COMPUTER_TOOLS: list[str] = [
     "wait",
 ]
 
+AUTO_LOCATE_TOOL_NAMES = {"click", "type_text"}
+
 
 class AutonomousComputerRuntime:
     """Autonomous runtime with terminal + GUI tools and no examiner loop, driven by LangGraph."""
@@ -76,6 +79,7 @@ class AutonomousComputerRuntime:
         max_consecutive_failures: int = 4,
         model_config_path: Path = Path("config/models.local.json"),
         model_role: str = "mainAgent",
+        locator_role: str = "locator",
         screenshot_after_gui_action: bool = True,
         progress_callback: ProgressCallback | None = None,
         progress_output_char_limit: int = 1200,
@@ -89,6 +93,7 @@ class AutonomousComputerRuntime:
         self.agent = agent
         self.model_config_path = model_config_path
         self.model_role = model_role
+        self.locator_role = locator_role
         self.max_steps = max_steps
         self.step_timeout_seconds = step_timeout_seconds
         self.max_consecutive_failures = max_consecutive_failures
@@ -124,6 +129,7 @@ class AutonomousComputerRuntime:
                 "mode": "autonomous_computer",
                 "allowed_tools": state.control.allowed_tools,
                 "examiner_enabled": False,
+                "locator_role": self.locator_role,
             },
             status="success",
         )
@@ -366,6 +372,15 @@ class AutonomousComputerRuntime:
             )
         return self.agent
 
+    def _locator_backend(self) -> ElementLocatorBackend:
+        if self.element_locator_backend is None:
+            self.element_locator_backend = create_default_element_locator_backend(
+                model_config_path=self.model_config_path,
+                role=self.locator_role,
+                timeout_s=self.step_timeout_seconds,
+            )
+        return self.element_locator_backend
+
     def _execute_tool_step(
         self,
         *,
@@ -422,17 +437,38 @@ class AutonomousComputerRuntime:
                 query=str(tool_args["query"]),
                 screenshot_path=screenshot_path,
                 screenshot_id=screenshot_id,
-                backend=self.element_locator_backend,
+                backend=self._locator_backend(),
             )
             location_artifacts = store.write_location_result(step_id=step_id, result=location_result)
             artifact_refs.extend(location_result.artifacts)
             artifact_refs.append(location_artifacts["artifact_ref"])
             return asdict(location_result), artifact_refs
 
+        auto_locate_result: ElementLocationResult | None = None
+        if tool_name in AUTO_LOCATE_TOOL_NAMES:
+            auto_locate_result = self._maybe_auto_locate(
+                state=state,
+                store=store,
+                step_id=step_id,
+                action_id=action_id,
+                query=self._auto_locate_query(decision.tool_args),
+                tool_name=tool_name,
+            )
+            if auto_locate_result is not None:
+                location_artifacts = store.write_location_result(step_id=step_id, result=auto_locate_result)
+                artifact_refs.extend(auto_locate_result.artifacts)
+                artifact_refs.append(location_artifacts["artifact_ref"])
+                if not auto_locate_result.success:
+                    failure_result = asdict(auto_locate_result)
+                    failure_result["tool_name"] = tool_name
+                    failure_result["result"] = {"auto_locate_query": self._auto_locate_query(decision.tool_args)}
+                    return failure_result, artifact_refs
+
         if tool_name == "click":
             click_x, click_y, resolved_from = self._resolve_click_coordinates(
                 state=state,
                 tool_args=tool_args,
+                auto_locate_result=auto_locate_result,
             )
             gui_result = click(
                 click_x,
@@ -445,7 +481,7 @@ class AutonomousComputerRuntime:
             gui_result.result["y"] = click_y
             if resolved_from:
                 gui_result.result["resolved_from"] = resolved_from
-            return self._attach_post_action_screenshot(
+            result_dict, artifact_refs = self._attach_post_action_screenshot(
                 state=state,
                 store=store,
                 step_id=step_id,
@@ -454,18 +490,28 @@ class AutonomousComputerRuntime:
                 gui_result=gui_result,
                 artifact_refs=artifact_refs,
             )
+            return self._attach_location_metadata(result_dict, auto_locate_result), artifact_refs
 
         if tool_name == "type_text":
+            type_x, type_y, resolved_from = self._resolve_optional_point(
+                state=state,
+                tool_args=tool_args,
+                keys=("x", "y"),
+                query_keys=("target_query", "query"),
+                auto_locate_result=auto_locate_result,
+            )
             gui_result = type_text(
                 str(tool_args["text"]),
-                x=self._optional_int(tool_args.get("x")),
-                y=self._optional_int(tool_args.get("y")),
+                x=type_x,
+                y=type_y,
                 clear=bool(tool_args.get("clear", False)),
                 caret_position=self._caret_position(tool_args.get("caret_position", "idle")),
                 press_enter=bool(tool_args.get("press_enter", False)),
                 backend=self.gui_backend,
             )
-            return self._attach_post_action_screenshot(
+            if resolved_from:
+                gui_result.result["resolved_from"] = resolved_from
+            result_dict, artifact_refs = self._attach_post_action_screenshot(
                 state=state,
                 store=store,
                 step_id=step_id,
@@ -474,6 +520,7 @@ class AutonomousComputerRuntime:
                 gui_result=gui_result,
                 artifact_refs=artifact_refs,
             )
+            return self._attach_location_metadata(result_dict, auto_locate_result), artifact_refs
 
         if tool_name == "hotkey":
             gui_result = hotkey(str(tool_args["shortcut"]), backend=self.gui_backend)
@@ -488,14 +535,74 @@ class AutonomousComputerRuntime:
             )
 
         if tool_name == "drag":
+            start_query = str(tool_args.get("start_query", "")).strip()
+            end_query = str(tool_args.get("target_query", tool_args.get("end_query", tool_args.get("query", "")))).strip()
+            start_location = self._maybe_auto_locate(
+                state=state,
+                store=store,
+                step_id=step_id,
+                action_id=f"{action_id}_drag_start",
+                query=start_query,
+                tool_name=tool_name,
+            )
+            if start_location is not None:
+                start_artifacts = store.write_location_result(step_id=step_id, result=start_location)
+                artifact_refs.extend(start_location.artifacts)
+                artifact_refs.append(start_artifacts["artifact_ref"])
+                if not start_location.success:
+                    failure_result = asdict(start_location)
+                    failure_result["tool_name"] = tool_name
+                    failure_result["result"] = {"auto_locate_query": start_query}
+                    return failure_result, artifact_refs
+
+            end_location = self._maybe_auto_locate(
+                state=state,
+                store=store,
+                step_id=step_id,
+                action_id=f"{action_id}_drag_end",
+                query=end_query,
+                tool_name=tool_name,
+            )
+            if end_location is not None:
+                end_artifacts = store.write_location_result(step_id=step_id, result=end_location)
+                artifact_refs.extend(end_location.artifacts)
+                artifact_refs.append(end_artifacts["artifact_ref"])
+                if not end_location.success:
+                    failure_result = asdict(end_location)
+                    failure_result["tool_name"] = tool_name
+                    failure_result["result"] = {"auto_locate_query": end_query}
+                    return failure_result, artifact_refs
+
+            start_x, start_y, start_source = self._resolve_drag_point(
+                state=state,
+                tool_args=tool_args,
+                x_key="x1",
+                y_key="y1",
+                query=start_query,
+                location_result=start_location,
+                source_name="start_query",
+            )
+            end_x, end_y, end_source = self._resolve_drag_point(
+                state=state,
+                tool_args=tool_args,
+                x_key="x2",
+                y_key="y2",
+                query=end_query,
+                location_result=end_location,
+                source_name="target_query",
+            )
             gui_result = drag(
-                self._required_int(tool_args, "x1"),
-                self._required_int(tool_args, "y1"),
-                self._required_int(tool_args, "x2"),
-                self._required_int(tool_args, "y2"),
+                start_x,
+                start_y,
+                end_x,
+                end_y,
                 backend=self.gui_backend,
             )
-            return self._attach_post_action_screenshot(
+            if start_source:
+                gui_result.result["start_resolved_from"] = start_source
+            if end_source:
+                gui_result.result["end_resolved_from"] = end_source
+            result_dict, artifact_refs = self._attach_post_action_screenshot(
                 state=state,
                 store=store,
                 step_id=step_id,
@@ -504,6 +611,7 @@ class AutonomousComputerRuntime:
                 gui_result=gui_result,
                 artifact_refs=artifact_refs,
             )
+            return self._attach_location_metadata(result_dict, end_location or start_location), artifact_refs
 
         if tool_name == "wait":
             wait_result = wait(self._required_int(tool_args, "seconds"))
@@ -616,6 +724,7 @@ class AutonomousComputerRuntime:
         artifact_refs: list[str],
     ) -> None:
         success = bool(result["success"])
+        previous_latest_screenshot_id = state.observation.latest_screenshot_id
         state.metrics.step_count += 1
         state.metrics.tool_call_count += 1
         if success:
@@ -658,50 +767,30 @@ class AutonomousComputerRuntime:
                     "height": int(result.get("height", 0)),
                 }
             result_summary = str(result.get("note") or result.get("path"))
-        elif decision.tool_name == "locate_element":
-            state.observation.latest_location_result_id = self._artifact_id(
-                artifact_refs,
-                prefix="location:",
-            )
-            state.observation.latest_location_query = str(result.get("query", ""))
-            bbox = result.get("bbox")
-            state.observation.latest_location_bbox = tuple(bbox) if isinstance(bbox, list | tuple) else None
-            state.observation.latest_location_confidence = float(result.get("confidence", 0.0))
-            state.observation.latest_location_source = str(result.get("source") or "")
-            state.observation.latest_location_suggested_next_steps = self._string_list(
-                result.get("suggested_next_steps", [])
-            )
-            if success:
-                state.metrics.consecutive_location_failures = 0
-                state.observation.latest_location_error_code = ""
+        elif decision.tool_name == "locate_element" or self._artifact_ref(artifact_refs, prefix="location:") is not None:
+            self._update_location_observation_from_result(state=state, result=result, artifact_refs=artifact_refs)
+            if decision.tool_name == "locate_element":
+                result_summary = str(result.get("reason") or "located element candidate")
             else:
-                state.metrics.consecutive_location_failures += 1
-                error = result.get("error") or {}
-                state.observation.latest_location_error_code = str(
-                    error.get("code", "LOCATE_ELEMENT_FAILED")
-                )
-                state.observation.latest_location_bbox = None
-            result_summary = str(result.get("reason") or "located element candidate")
+                tool_error = result.get("error") or {}
+                if result.get("success"):
+                    result_summary = str(result.get("note") or result.get("reason") or f"{decision.tool_name} executed")
+                else:
+                    result_summary = str(tool_error.get("message") or result.get("reason") or "auto locate failed")
         else:
-            latest_screenshot_ref = self._artifact_ref(artifact_refs, prefix="screenshot:")
-            if latest_screenshot_ref is not None:
+            result_summary = self._generic_gui_result_summary(decision=decision, result=result)
+
+        latest_screenshot_ref = self._artifact_ref(artifact_refs, prefix="screenshot:")
+        if latest_screenshot_ref is not None and decision.tool_name not in {"take_screenshot", "view_screenshot", "locate_element"}:
+            latest_screenshot_id = latest_screenshot_ref.split(":", 1)[1]
+            if latest_screenshot_id != previous_latest_screenshot_id:
                 state.metrics.screenshot_count += 1
-                state.observation.latest_screenshot_id = latest_screenshot_ref.split(":", 1)[1]
-                state.observation.latest_screenshot_path = str(
-                    Path(state.run.root_dir)
-                    / "screenshots"
-                    / f"{state.observation.latest_screenshot_id}.png"
-                )
-            if decision.tool_name == "type_text":
-                typed_length = int(result.get("result", {}).get("typed_length", 0))
-                result_summary = f"typed {typed_length} characters"
-            elif decision.tool_name == "wait":
-                result_summary = f"waited {result.get('result', {}).get('seconds', 0)} seconds"
-            elif decision.tool_name == "click":
-                click_result = result.get("result", {})
-                result_summary = f"clicked at ({click_result.get('x')}, {click_result.get('y')})"
-            else:
-                result_summary = f"{decision.tool_name} executed"
+            state.observation.latest_screenshot_id = latest_screenshot_id
+            state.observation.latest_screenshot_path = str(
+                Path(state.run.root_dir)
+                / "screenshots"
+                / f"{state.observation.latest_screenshot_id}.png"
+            )
 
         state.observation.last_observation_summary = result_summary
         state.last_action.action_id = action_id
@@ -723,7 +812,7 @@ class AutonomousComputerRuntime:
             state.errors.last_error_code = str(error.get("code", "TOOL_FAILED"))
             state.errors.last_error_message = str(error.get("message", result_summary))
             state.errors.last_failed_tool = decision.tool_name
-            if decision.tool_name == "locate_element" and state.metrics.consecutive_location_failures >= 2:
+            if self._artifact_ref(artifact_refs, prefix="location:") is not None and state.metrics.consecutive_location_failures >= 2:
                 state.errors.blocked = True
                 state.errors.block_reason = "连续定位失败，禁止继续盲点；请重新截图、等待或放弃当前方案。"
 
@@ -771,14 +860,21 @@ class AutonomousComputerRuntime:
                     }
             case "click":
                 target = str(tool_args.get("target", "")).strip()
+                target_query = str(tool_args.get("target_query", tool_args.get("query", ""))).strip()
                 if target == "last_located":
-                    if state.observation.latest_location_bbox is None:
+                    if state.observation.latest_location_point is None:
                         return {
                             "code": "LOCATION_REQUIRED",
                             "message": "click target=last_located requires a successful locate_element result",
                         }
+                elif target_query:
+                    if not state.observation.latest_screenshot_path:
+                        return {
+                            "code": "SCREENSHOT_REQUIRED",
+                            "message": "semantic click requires an existing screenshot observation",
+                        }
                 elif not self._has_coordinates(tool_args, keys=("x", "y")):
-                    return {"code": "INVALID_COORDINATES", "message": "click requires x/y or target=last_located"}
+                    return {"code": "INVALID_COORDINATES", "message": "click requires x/y, target=last_located, or target_query"}
                 elif not self._coordinates_in_bounds(state, self._required_int(tool_args, "x"), self._required_int(tool_args, "y")):
                     return {"code": "INVALID_COORDINATES", "message": "click coordinates are outside screen bounds"}
                 clicks = self._optional_int(tool_args.get("clicks"), default=1) or 1
@@ -792,6 +888,12 @@ class AutonomousComputerRuntime:
                     return {"code": "INVALID_TOOL_ARGS", "message": "type_text requires text"}
                 x_value = tool_args.get("x")
                 y_value = tool_args.get("y")
+                target_query = str(tool_args.get("target_query", tool_args.get("query", ""))).strip()
+                if target_query and not state.observation.latest_screenshot_path:
+                    return {
+                        "code": "SCREENSHOT_REQUIRED",
+                        "message": "semantic type_text requires an existing screenshot observation",
+                    }
                 if (x_value is None) ^ (y_value is None):
                     return {"code": "INVALID_COORDINATES", "message": "type_text x/y must be provided together"}
                 if x_value is not None and y_value is not None:
@@ -809,21 +911,29 @@ class AutonomousComputerRuntime:
                 if not shortcut:
                     return {"code": "INVALID_TOOL_ARGS", "message": "hotkey requires shortcut"}
             case "drag":
-                if not self._has_coordinates(tool_args, keys=("x1", "y1", "x2", "y2")):
+                has_numeric_coords = self._has_coordinates(tool_args, keys=("x1", "y1", "x2", "y2"))
+                has_semantic_drag = any(str(tool_args.get(key, "")).strip() for key in ("start_query", "target_query", "end_query", "query"))
+                if not has_numeric_coords and not has_semantic_drag:
                     return {
                         "code": "INVALID_COORDINATES",
-                        "message": "drag requires x1, y1, x2 and y2",
+                        "message": "drag requires numeric coordinates or semantic start/target queries",
                     }
-                if not self._coordinates_in_bounds(
-                    state,
-                    self._required_int(tool_args, "x1"),
-                    self._required_int(tool_args, "y1"),
-                ) or not self._coordinates_in_bounds(
-                    state,
-                    self._required_int(tool_args, "x2"),
-                    self._required_int(tool_args, "y2"),
-                ):
-                    return {"code": "INVALID_COORDINATES", "message": "drag coordinates are outside screen bounds"}
+                if has_numeric_coords:
+                    if not self._coordinates_in_bounds(
+                        state,
+                        self._required_int(tool_args, "x1"),
+                        self._required_int(tool_args, "y1"),
+                    ) or not self._coordinates_in_bounds(
+                        state,
+                        self._required_int(tool_args, "x2"),
+                        self._required_int(tool_args, "y2"),
+                    ):
+                        return {"code": "INVALID_COORDINATES", "message": "drag coordinates are outside screen bounds"}
+                elif not state.observation.latest_screenshot_path:
+                    return {
+                        "code": "SCREENSHOT_REQUIRED",
+                        "message": "semantic drag requires an existing screenshot observation",
+                    }
             case "wait":
                 seconds_value = tool_args.get("seconds", 0)
                 if not isinstance(seconds_value, int | float):
@@ -942,11 +1052,11 @@ class AutonomousComputerRuntime:
                     },
                 }
             )
-        elif decision.tool_name == "locate_element":
+        elif decision.tool_name == "locate_element" or self._artifact_ref(artifact_refs, prefix="location:") is not None:
             history_item.update(
                 {
-                    "query": result.get("query", ""),
-                    "bbox": result.get("bbox"),
+                    "query": result.get("query", "") or self._auto_locate_query(decision.tool_args),
+                    "point": result.get("point"),
                     "confidence": result.get("confidence", 0.0),
                     "source": result.get("source", ""),
                     "suggested_next_steps": result.get("suggested_next_steps", []),
@@ -1055,9 +1165,9 @@ class AutonomousComputerRuntime:
                 self._emit(_indent_block(stderr))
         elif tool_name in {"take_screenshot", "view_screenshot"}:
             self._emit(f"Screenshot: {result.get('screenshot_id')} {result.get('path')}")
-        elif tool_name == "locate_element":
+        elif tool_name == "locate_element" or result.get("point") is not None:
             self._emit(
-                f"Location  : bbox={result.get('bbox')} confidence={result.get('confidence')} "
+                f"Location  : point={result.get('point')} confidence={result.get('confidence')} "
                 f"source={result.get('source')} reason={result.get('reason')}"
             )
         else:
@@ -1079,19 +1189,170 @@ class AutonomousComputerRuntime:
         self._emit(f"Artifacts : {run_dir}")
         self._emit("=" * 80)
 
+    def _maybe_auto_locate(
+        self,
+        *,
+        state: RuntimeState,
+        store: RunStore,
+        step_id: int,
+        action_id: str,
+        query: str,
+        tool_name: str,
+    ) -> ElementLocationResult | None:
+        if not query:
+            return None
+        if not state.observation.latest_screenshot_path:
+            screenshot_result = self._capture_and_record_screenshot(
+                state=state,
+                store=store,
+                step_id=step_id,
+                action_id=f"{action_id}_auto_locate",
+                description=f"auto locate before {tool_name}",
+            )
+            state.observation.latest_screenshot_id = screenshot_result.screenshot_id
+            state.observation.latest_screenshot_path = screenshot_result.path
+            state.observation.desktop_resolution = {"width": screenshot_result.width, "height": screenshot_result.height}
+            state.metrics.screenshot_count += 1
+        screenshot_path = Path(state.observation.latest_screenshot_path)
+        screenshot_id = state.observation.latest_screenshot_id
+        return locate_element(
+            query=query,
+            screenshot_path=screenshot_path,
+            screenshot_id=screenshot_id,
+            backend=self._locator_backend(),
+        )
+
+    @staticmethod
+    def _auto_locate_query(tool_args: dict[str, object]) -> str:
+        for key in ("target_query", "query", "target_description"):
+            value = str(tool_args.get(key, "")).strip()
+            if value:
+                return value
+        return ""
+
+    def _update_location_observation_from_result(
+        self,
+        *,
+        state: RuntimeState,
+        result: dict[str, Any],
+        artifact_refs: list[str],
+    ) -> None:
+        state.observation.latest_location_result_id = self._artifact_id(
+            artifact_refs,
+            prefix="location:",
+        )
+        state.observation.latest_location_query = str(result.get("query", ""))
+        point = result.get("point")
+        state.observation.latest_location_point = tuple(point) if isinstance(point, list | tuple) else None
+        state.observation.latest_location_confidence = float(result.get("confidence", 0.0))
+        state.observation.latest_location_source = str(result.get("source") or "")
+        state.observation.latest_location_suggested_next_steps = self._string_list(
+            result.get("suggested_next_steps", [])
+        )
+        if bool(result.get("success", False)):
+            state.metrics.consecutive_location_failures = 0
+            state.observation.latest_location_error_code = ""
+        else:
+            state.metrics.consecutive_location_failures += 1
+            error = result.get("error") or {}
+            state.observation.latest_location_error_code = str(
+                error.get("code", "LOCATE_ELEMENT_FAILED")
+            )
+            state.observation.latest_location_point = None
+
+    @staticmethod
+    def _attach_location_metadata(
+        result: dict[str, Any],
+        location_result: ElementLocationResult | None,
+    ) -> dict[str, Any]:
+        if location_result is None:
+            return result
+        result["query"] = location_result.query
+        result["point"] = list(location_result.point) if location_result.point is not None else None
+        result["confidence"] = location_result.confidence
+        result["source"] = location_result.source
+        result["reason"] = location_result.reason
+        result["error"] = location_result.error if location_result.error is not None else result.get("error")
+        result["suggested_next_steps"] = list(location_result.suggested_next_steps)
+        return result
+
+    def _generic_gui_result_summary(
+        self,
+        *,
+        decision: TerminalAgentDecision,
+        result: dict[str, Any],
+    ) -> str:
+        if decision.tool_name == "type_text":
+            typed_length = int(result.get("result", {}).get("typed_length", 0))
+            return f"typed {typed_length} characters"
+        if decision.tool_name == "wait":
+            return f"waited {result.get('result', {}).get('seconds', 0)} seconds"
+        if decision.tool_name == "click":
+            click_result = result.get("result", {})
+            return f"clicked at ({click_result.get('x')}, {click_result.get('y')})"
+        if decision.tool_name == "drag":
+            drag_result = result.get("result", {})
+            return (
+                f"dragged from ({drag_result.get('x1')}, {drag_result.get('y1')}) "
+                f"to ({drag_result.get('x2')}, {drag_result.get('y2')})"
+            )
+        return f"{decision.tool_name} executed"
+
     def _resolve_click_coordinates(
         self,
         *,
         state: RuntimeState,
         tool_args: dict[str, object],
+        auto_locate_result: ElementLocationResult | None,
     ) -> tuple[int, int, str]:
         target = str(tool_args.get("target", "")).strip()
+        if auto_locate_result is not None and auto_locate_result.success and auto_locate_result.point is not None:
+            x, y = auto_locate_result.point
+            return x, y, "target_query"
         if target == "last_located":
-            if state.observation.latest_location_bbox is None:
-                raise ValueError("No latest located bbox available")
-            x, y = bbox_center(state.observation.latest_location_bbox)
+            if state.observation.latest_location_point is None:
+                raise ValueError("No latest located point available")
+            x, y = state.observation.latest_location_point
             return x, y, "last_located"
         return self._required_int(tool_args, "x"), self._required_int(tool_args, "y"), ""
+
+    def _resolve_optional_point(
+        self,
+        *,
+        state: RuntimeState,
+        tool_args: dict[str, object],
+        keys: tuple[str, str],
+        query_keys: tuple[str, ...],
+        auto_locate_result: ElementLocationResult | None,
+    ) -> tuple[int | None, int | None, str]:
+        x_key, y_key = keys
+        query = next((str(tool_args.get(key, "")).strip() for key in query_keys if str(tool_args.get(key, "")).strip()), "")
+        if auto_locate_result is not None and auto_locate_result.success and auto_locate_result.point is not None and query:
+            x, y = auto_locate_result.point
+            return x, y, query_keys[0]
+        x_value = tool_args.get(x_key)
+        y_value = tool_args.get(y_key)
+        if x_value is None or y_value is None:
+            return None, None, ""
+        if not isinstance(x_value, int | float) or not isinstance(y_value, int | float):
+            raise ValueError("coordinates must be numeric")
+        return int(x_value), int(y_value), ""
+
+    def _resolve_drag_point(
+        self,
+        *,
+        state: RuntimeState,
+        tool_args: dict[str, object],
+        x_key: str,
+        y_key: str,
+        query: str,
+        location_result: ElementLocationResult | None,
+        source_name: str,
+    ) -> tuple[int, int, str]:
+        if location_result is not None and location_result.success and location_result.point is not None and query:
+            x, y = location_result.point
+            return x, y, source_name
+        return self._required_int(tool_args, x_key), self._required_int(tool_args, y_key), ""
 
     @staticmethod
     def _string_list(value: object) -> list[str]:

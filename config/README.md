@@ -9,7 +9,7 @@
 
 ## 当前角色约定
 
-- `locator`：使用 OpenRouter 的 `uitars`，用于 GUI 元素定位。
+- `locator`：使用 OpenRouter 的 `bytedance/ui-tars-1.5-7b`，用于 GUI 元素定位。
 - `mainAgent`：使用 `mimo-token-plan-cn / mimo-v2.5`，用于主执行 agent。
 - `examiner`：使用 `mimo-token-plan-cn / mimo-v2.5`，用于验收 examiner。
 

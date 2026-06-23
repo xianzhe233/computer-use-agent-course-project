@@ -89,7 +89,7 @@ class RunStore:
             "screenshot_id": result.screenshot_id,
             "screenshot_path": result.screenshot_path,
             "success": result.success,
-            "bbox": list(result.bbox) if result.bbox else None,
+            "point": list(result.point) if result.point else None,
             "confidence": result.confidence,
             "source": result.source,
             "reason": result.reason,

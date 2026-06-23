@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import base64
+import io
+import json
 import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
-LocationSource = Literal["vision", "uia", "hybrid", "fallback"]
+from PIL import Image
+
+LocationSource = Literal["vision", "fallback"]
 
 
 @dataclass(slots=True)
 class ElementLocationCandidate:
-    bbox: tuple[int, int, int, int]
+    point: tuple[int, int]
     confidence: float
     source: LocationSource
     reason: str
@@ -28,7 +33,7 @@ class ElementLocationResult:
     success: bool
     duration_ms: int
     timestamp: str
-    bbox: tuple[int, int, int, int] | None = None
+    point: tuple[int, int] | None = None
     confidence: float = 0.0
     source: LocationSource | None = None
     reason: str = ""
@@ -60,7 +65,38 @@ class NullElementLocatorBackend:
         return []
 
 
-class WindowsUIAElementLocator:
+class UITarsElementLocator:
+    def __init__(
+        self,
+        *,
+        client: Any,
+        max_side: int = 1344,
+        max_candidates: int = 5,
+    ) -> None:
+        self.client = client
+        self.max_side = max_side
+        self.max_candidates = max_candidates
+
+    @classmethod
+    def from_config_file(
+        cls,
+        config_path: Path,
+        *,
+        role: str = "locator",
+        timeout_s: int = 60,
+        max_side: int = 1344,
+        max_candidates: int = 5,
+    ) -> UITarsElementLocator:
+        from computer_use_agent.terminal_agent import OpenAICompatibleChatClient
+
+        _normalize_locator_model_alias(config_path=config_path, role=role)
+        client = OpenAICompatibleChatClient.from_config_file(
+            config_path=config_path,
+            role=role,
+            timeout_s=timeout_s,
+        )
+        return cls(client=client, max_side=max_side, max_candidates=max_candidates)
+
     def locate(
         self,
         *,
@@ -68,38 +104,48 @@ class WindowsUIAElementLocator:
         screenshot_path: Path,
         screenshot_id: str = "",
     ) -> list[ElementLocationCandidate]:
-        del screenshot_path, screenshot_id
-        from computer_use_agent._vendor.windows_use import uia
+        data_url, rendered_size, original_size = _prepare_locator_image(
+            screenshot_path,
+            max_side=self.max_side,
+        )
+        prompt = _build_uitars_locator_prompt(
+            query=query,
+            screenshot_id=screenshot_id,
+            rendered_size=rendered_size,
+            original_size=original_size,
+            max_candidates=self.max_candidates,
+        )
+        response = self.client.complete(
+            [
+                {"role": "system", "content": UITARS_LOCATOR_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
+                    ],
+                },
+            ]
+        )
+        return _parse_uitars_locator_candidates(
+            response,
+            rendered_size=rendered_size,
+            original_size=original_size,
+        )
 
-        foreground = uia.GetForegroundControl()
-        normalized_query = query.strip()
-        candidates: list[ElementLocationCandidate] = []
 
-        exact_control = foreground.Control(Name=normalized_query)
-        if exact_control.Exists(maxSearchSeconds=0.5):
-            candidates.append(_control_to_candidate(exact_control, normalized_query, 0.97, "exact Name match"))
-
-        regex = re.escape(normalized_query)
-        regex_control = foreground.Control(RegexName=f"(?i).*{regex}.*")
-        if regex_control.Exists(maxSearchSeconds=0.5):
-            candidates.append(
-                _control_to_candidate(regex_control, normalized_query, 0.9, "regex Name match in foreground window")
-            )
-
-        subname_control = foreground.Control(SubName=normalized_query)
-        if subname_control.Exists(maxSearchSeconds=0.5):
-            candidates.append(
-                _control_to_candidate(subname_control, normalized_query, 0.84, "substring Name match in foreground window")
-            )
-
-        return _deduplicate_candidates(candidates)
-
-
-def create_default_element_locator_backend() -> ElementLocatorBackend:
-    try:
-        return WindowsUIAElementLocator()
-    except Exception:
-        return NullElementLocatorBackend()
+def create_default_element_locator_backend(
+    *,
+    model_config_path: Path | None = None,
+    role: str = "locator",
+    timeout_s: int = 60,
+) -> ElementLocatorBackend:
+    config_path = model_config_path or Path("config/models.local.json")
+    return UITarsElementLocator.from_config_file(
+        config_path=config_path,
+        role=role,
+        timeout_s=timeout_s,
+    )
 
 
 def locate_element(
@@ -205,7 +251,7 @@ def locate_element(
         success=True,
         duration_ms=duration_ms,
         timestamp=located_at,
-        bbox=best_candidate.bbox,
+        point=best_candidate.point,
         confidence=best_candidate.confidence,
         source=best_candidate.source,
         reason=best_candidate.reason,
@@ -215,34 +261,213 @@ def locate_element(
     )
 
 
-def bbox_center(bbox: tuple[int, int, int, int]) -> tuple[int, int]:
-    x1, y1, x2, y2 = bbox
-    return ((x1 + x2) // 2, (y1 + y2) // 2)
+UITARS_LOCATOR_SYSTEM_PROMPT = """
+You are a UI element locator for Windows screenshots.
+Return JSON only.
+Locate the user-described UI element in the screenshot and return up to the requested number of candidate points.
+Coordinates must be integer pixels in the rendered image coordinate space described by the user.
+If no good candidate exists, return {"candidates": []}.
+""".strip()
+
+LOCATOR_MODEL_ALIASES: dict[str, str] = {
+    "uitars": "bytedance/ui-tars-1.5-7b",
+    "ui-tars": "bytedance/ui-tars-1.5-7b",
+    "ui_tars": "bytedance/ui-tars-1.5-7b",
+}
 
 
-def _control_to_candidate(control: object, query: str, confidence: float, reason: str) -> ElementLocationCandidate:
-    rect = getattr(control, "BoundingRectangle")
-    metadata = {
-        "query": query,
-        "control_name": getattr(control, "Name", ""),
-        "automation_id": getattr(control, "AutomationId", ""),
-        "class_name": getattr(control, "ClassName", ""),
-    }
-    return ElementLocationCandidate(
-        bbox=(int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)),
-        confidence=confidence,
-        source="uia",
-        reason=reason,
-        metadata=metadata,
+def _normalize_locator_model_alias(*, config_path: Path, role: str) -> None:
+    try:
+        raw_config = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    roles = raw_config.get("roles", {})
+    role_config = roles.get(role)
+    if not isinstance(role_config, dict):
+        return
+    model = str(role_config.get("model", "")).strip()
+    normalized = LOCATOR_MODEL_ALIASES.get(model.lower())
+    if normalized:
+        role_config["model"] = normalized
+        config_path.write_text(json.dumps(raw_config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _build_uitars_locator_prompt(
+    *,
+    query: str,
+    screenshot_id: str,
+    rendered_size: tuple[int, int],
+    original_size: tuple[int, int],
+    max_candidates: int,
+) -> str:
+    rendered_width, rendered_height = rendered_size
+    original_width, original_height = original_size
+    return (
+        "请在截图中定位用户描述的 Windows 界面元素，只输出一个 JSON 对象。\n"
+        "返回 schema："
+        '{"candidates": [{"point": [x, y], "confidence": 0.0, "reason": "..."}]}\n'
+        f"元素描述：{query}\n"
+        f"截图编号：{screenshot_id or '<none>'}\n"
+        f"你看到的图片尺寸（rendered image）是 {rendered_width}x{rendered_height}。\n"
+        f"原始截图尺寸（original image）是 {original_width}x{original_height}。\n"
+        "要求：\n"
+        "1. point 使用 rendered image 的整数像素坐标。\n"
+        "2. 坐标格式必须是 [x, y]。\n"
+        f"3. 最多返回 {max_candidates} 个候选，按置信度从高到低排序。\n"
+        "4. 只返回 JSON，不要输出 Markdown 或解释。"
+    )
+
+
+def _prepare_locator_image(path: Path, *, max_side: int) -> tuple[str, tuple[int, int], tuple[int, int]]:
+    with Image.open(path) as image:
+        original_width, original_height = image.size
+        prepared = image.convert("RGB") if image.mode not in {"RGB", "L"} else image.copy()
+        prepared.thumbnail((max_side, max_side))
+        rendered_width, rendered_height = prepared.size
+        buffer = io.BytesIO()
+        prepared.save(buffer, format="JPEG", quality=90, optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return (
+        f"data:image/jpeg;base64,{encoded}",
+        (rendered_width, rendered_height),
+        (original_width, original_height),
+    )
+
+
+def _parse_uitars_locator_candidates(
+    raw_response: str,
+    *,
+    rendered_size: tuple[int, int],
+    original_size: tuple[int, int],
+) -> list[ElementLocationCandidate]:
+    payload = _load_json_object(raw_response)
+    raw_candidates = payload.get("candidates")
+    if isinstance(raw_candidates, list):
+        candidates_payload = raw_candidates
+    else:
+        candidates_payload = [payload]
+
+    candidates: list[ElementLocationCandidate] = []
+    for index, item in enumerate(candidates_payload):
+        if not isinstance(item, dict):
+            continue
+        point = _coerce_point(item.get("point"))
+        if point is None:
+            point = _coerce_point(item.get("bbox"))
+        if point is None:
+            continue
+        scaled_point = _scale_point(point, rendered_size=rendered_size, original_size=original_size)
+        confidence = _coerce_confidence(item.get("confidence"), default=0.5)
+        reason = str(item.get("reason", "vision candidate")).strip() or "vision candidate"
+        candidates.append(
+            ElementLocationCandidate(
+                point=scaled_point,
+                confidence=confidence,
+                source="vision",
+                reason=reason,
+                metadata={
+                    "candidate_index": index,
+                    "rendered_point": list(point),
+                    "rendered_size": {"width": rendered_size[0], "height": rendered_size[1]},
+                    "original_size": {"width": original_size[0], "height": original_size[1]},
+                },
+            )
+        )
+    return _deduplicate_candidates(candidates)
+
+
+def _load_json_object(raw_response: str) -> dict[str, Any]:
+    text = raw_response.strip()
+    try:
+        loaded = json.loads(text)
+    except json.JSONDecodeError:
+        loaded = json.loads(_extract_json_object(text))
+    if not isinstance(loaded, dict):
+        raise ValueError("locator response must be a JSON object")
+    return loaded
+
+
+def _extract_json_object(text: str) -> str:
+    code_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+    if code_block_match:
+        return code_block_match.group(1)
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("locator response does not contain a JSON object")
+    return text[start : end + 1]
+
+
+def _coerce_point(value: object) -> tuple[int, int] | None:
+    if not isinstance(value, list | tuple):
+        return None
+    if len(value) == 2:
+        point_like = value
+    elif len(value) == 4:
+        point_like = value[:2]
+    else:
+        return None
+    try:
+        x_raw, y_raw = point_like
+        if not isinstance(x_raw, int | float | str) or not isinstance(y_raw, int | float | str):
+            return None
+        x = int(float(x_raw))
+        y = int(float(y_raw))
+    except (TypeError, ValueError):
+        return None
+    return (x, y)
+
+
+def _coerce_confidence(value: object, *, default: float) -> float:
+    try:
+        if not isinstance(value, int | float | str):
+            raise TypeError
+        confidence = float(value)
+    except (TypeError, ValueError):
+        confidence = default
+    return max(0.0, min(1.0, confidence))
+
+
+def _scale_point(
+    point: tuple[int, int],
+    *,
+    rendered_size: tuple[int, int],
+    original_size: tuple[int, int],
+) -> tuple[int, int]:
+    rendered_width, rendered_height = rendered_size
+    original_width, original_height = original_size
+    if rendered_width <= 0 or rendered_height <= 0:
+        return point
+
+    scale_x = original_width / rendered_width
+    scale_y = original_height / rendered_height
+    scaled = (
+        int(round(point[0] * scale_x)),
+        int(round(point[1] * scale_y)),
+    )
+    return _clamp_point(scaled, width=original_width, height=original_height)
+
+
+def _clamp_point(
+    point: tuple[int, int],
+    *,
+    width: int,
+    height: int,
+) -> tuple[int, int]:
+    x, y = point
+    return (
+        max(0, min(x, max(width - 1, 0))),
+        max(0, min(y, max(height - 1, 0))),
     )
 
 
 def _deduplicate_candidates(candidates: list[ElementLocationCandidate]) -> list[ElementLocationCandidate]:
     deduplicated: list[ElementLocationCandidate] = []
-    seen: set[tuple[int, int, int, int]] = set()
+    seen: set[tuple[int, int]] = set()
     for candidate in candidates:
-        if candidate.bbox in seen:
+        if candidate.point in seen:
             continue
         deduplicated.append(candidate)
-        seen.add(candidate.bbox)
+        seen.add(candidate.point)
     return deduplicated

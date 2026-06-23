@@ -305,7 +305,9 @@ class LLMComputerAgent:
                     "你主动采集或回看的 latest_screenshot 会作为多模态图片直接附在下一轮消息中；不要只根据文件路径臆测屏幕状态",
                     "命令成功不等于 GUI 状态正确；凡是窗口、弹窗、输入结果等视觉状态，都要用截图确认",
                     "locate_element 依赖 latest_screenshot；如果没有截图或界面变化明显，先 take_screenshot",
-                    "点击定位结果时优先使用 click {target: 'last_located'}，不要在定位失败后盲点",
+                    "需要坐标的 GUI 动作优先使用语义目标参数（如 click.target_query、type_text.target_query、drag.start_query/end_query），让 runtime 自动调用定位器产出点坐标",
+                    "只有在你明确拥有可靠坐标证据时才直接填写 x/y；否则优先使用 target_query / start_query / end_query",
+                    "定位结果现在只表示一个点击/输入点，不再依赖区域框或 UIA 兜底；定位失败后不要盲点",
                     "当前命令工作目录就是 workspace",
                 ],
             },
@@ -346,21 +348,22 @@ COMPUTER_AGENT_SYSTEM_PROMPT = """
 4. 视觉观察必须由你主动选择：需要看当前屏幕时调用 take_screenshot；需要回看历史截图时调用 view_screenshot。
 5. take_screenshot/view_screenshot 执行后的下一轮会把对应截图作为图片内容附上；如果本轮有 latest_screenshot 图片，你必须直接观察图片内容。
 6. 命令成功不等于 GUI 状态正确；凡是窗口是否打开、弹窗是否出现、文本是否输入、保存是否完成等视觉状态，都要用截图确认，不能只看 exit_code。
-7. GUI 任务优先遵循 take_screenshot -> locate_element -> 单步动作 -> take_screenshot 的节奏；定位失败后不要盲点，应重新截图、等待或换策略。
-8. 命令应短小、非交互、可在 PowerShell 中执行；避免破坏性命令、系统级修改、无限等待和需要人工输入的命令。
-9. GUI 动作应原子化；执行点击、输入、快捷键、拖拽后运行时会自动补截图证据。
-10. 任务完成前尽量用命令输出、截图、定位结果或 GUI 后截图作为证据。
-11. 不要只根据截图路径、截图编号或 expected_observation 判断界面；没有图片内容就先请求截图。
+7. GUI 任务优先遵循 take_screenshot -> locate_element/semantic target -> 单步动作 -> take_screenshot 的节奏；定位失败后不要盲点，应重新截图、等待或换策略。
+8. 对于 click、type_text、drag 这类需要坐标的 GUI 动作，优先提供 target_query / start_query / end_query，让运行时自动调用定位器返回点坐标；只有在坐标证据明确可靠时才直接输出 x/y。
+9. 命令应短小、非交互、可在 PowerShell 中执行；避免破坏性命令、系统级修改、无限等待和需要人工输入的命令。
+10. GUI 动作应原子化；执行点击、输入、快捷键、拖拽后运行时会自动补截图证据。
+11. 任务完成前尽量用命令输出、截图、定位结果或 GUI 后截图作为证据。
+12. 不要只根据截图路径、截图编号或 expected_observation 判断界面；没有图片内容就先请求截图。
 
 可用工具 schema：
 - run_command: {"command": "PowerShell 命令"}
 - take_screenshot: {"description": "这张截图用于观察/证明什么"}
 - view_screenshot: {"screenshot_id": "ss_0001"}
-- locate_element: {"query": "要定位的控件或元素描述"}
-- click: {"x": 100, "y": 200, "button": "left", "clicks": 1} 或 {"target": "last_located"}
-- type_text: {"text": "要输入的文本", "x": 100, "y": 200, "clear": false, "caret_position": "idle", "press_enter": false}
+- locate_element: {"query": "要定位的控件或元素描述"}，返回一个点坐标
+- click: {"target_query": "保存按钮", "button": "left", "clicks": 1}；仅在坐标已可靠时才用 {"x": 100, "y": 200, ...}
+- type_text: {"text": "要输入的文本", "target_query": "搜索框", "clear": false, "caret_position": "idle", "press_enter": false}；仅在坐标已可靠时才用 x/y
 - hotkey: {"shortcut": "ctrl+s"}
-- drag: {"x1": 100, "y1": 100, "x2": 300, "y2": 300}
+- drag: {"start_query": "滑块起点", "end_query": "滑块终点"}；仅在坐标已可靠时才用 x1/y1/x2/y2
 - wait: {"seconds": 1}
 
 工具调用 JSON：

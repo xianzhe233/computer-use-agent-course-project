@@ -16,7 +16,7 @@
   "roles": {
     "locator": {
       "provider": "openrouter",
-      "model": "uitars",
+      "model": "bytedance/ui-tars-1.5-7b",
       "upstreamFamily": "UI-TARS",
       "purpose": "GUI 元素定位"
     },
