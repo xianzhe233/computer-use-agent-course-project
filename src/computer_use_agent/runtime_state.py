@@ -47,6 +47,8 @@ class ControlState:
 class ObservationState:
     latest_screenshot_id: str = ""
     latest_screenshot_path: str = ""
+    selected_screenshot_ids: list[str] = field(default_factory=list)
+    selected_screenshot_paths: list[str] = field(default_factory=list)
     latest_command_result_id: str = ""
     latest_location_result_id: str = ""
     latest_location_query: str = ""

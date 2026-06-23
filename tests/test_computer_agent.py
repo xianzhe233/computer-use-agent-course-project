@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 
 from computer_use_agent.runtime_state import create_runtime_state
-from computer_use_agent.terminal_agent import (
+from computer_use_agent.computer_agent import (
     COMPUTER_AGENT_SYSTEM_PROMPT,
     LLMComputerAgent,
     OpenAICompatibleChatClient,
@@ -78,6 +78,8 @@ def test_computer_agent_prompt_mentions_new_gui_tools() -> None:
     assert "open_app" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "switch_app" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "focus_window" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "Get-StartApps" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "记事本" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "double_click、right_click、move_mouse、hover、type_text、hotkey、scroll、drag、open_app、switch_app、focus_window" in TERMINAL_AGENT_SYSTEM_PROMPT
 
 

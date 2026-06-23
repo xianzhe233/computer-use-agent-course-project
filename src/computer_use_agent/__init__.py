@@ -11,7 +11,7 @@ from .runtime_state import (
     TerminalRunStatus,
     create_runtime_state,
 )
-from .terminal_agent import TerminalAgentDecision
+from .computer_agent import TerminalAgentDecision
 
 __all__ = [
     "ActionRecord",

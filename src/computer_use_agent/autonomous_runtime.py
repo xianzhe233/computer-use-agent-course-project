@@ -17,7 +17,7 @@ from .autonomous_terminal_runtime import (
 from .graph_runtime import AgentGraphState, compile_linear_agent_graph
 from .run_store import RunStore, mark_run_finished
 from .runtime_state import RuntimeState, TerminalRunStatus, create_runtime_state
-from .terminal_agent import (
+from .computer_agent import (
     AutonomousComputerAgent,
     LLMComputerAgent,
     TerminalAgentDecision,
@@ -95,7 +95,9 @@ class AutonomousComputerRuntime:
         model_config_path: Path = Path("config/models.local.json"),
         model_role: str = "mainAgent",
         locator_role: str = "locator",
+        capture_initial_screenshot: bool = True,
         screenshot_after_gui_action: bool = True,
+        post_gui_screenshot_delay_seconds: float = 0.6,
         progress_callback: ProgressCallback | None = None,
         progress_output_char_limit: int = 1200,
     ) -> None:
@@ -112,7 +114,9 @@ class AutonomousComputerRuntime:
         self.max_steps = max_steps
         self.step_timeout_seconds = step_timeout_seconds
         self.max_consecutive_failures = max_consecutive_failures
+        self.capture_initial_screenshot = capture_initial_screenshot
         self.screenshot_after_gui_action = screenshot_after_gui_action
+        self.post_gui_screenshot_delay_seconds = max(0.0, post_gui_screenshot_delay_seconds)
         self.progress_callback = progress_callback
         self.progress_output_char_limit = progress_output_char_limit
 
@@ -149,6 +153,8 @@ class AutonomousComputerRuntime:
             status="success",
         )
         self._emit_run_header(run_id=run_id, user_request=user_request, state=state)
+        if self.capture_initial_screenshot:
+            self._record_initial_screenshot(state=state, store=store)
 
         app = self._build_graph(state=state, store=store, history=history)
         app.invoke({"step_id": 0, "terminated": False, "artifact_refs": []})
@@ -170,6 +176,38 @@ class AutonomousComputerRuntime:
         store.write_summary(state)
         self._emit_run_footer(state=state, run_dir=run_dir)
         return state
+
+    def _record_initial_screenshot(self, *, state: RuntimeState, store: RunStore) -> None:
+        screenshot_result = self._capture_and_record_screenshot(
+            state=state,
+            store=store,
+            step_id=0,
+            action_id="runtime_initial_screenshot",
+            description="初始截图",
+        )
+        screenshot_ref = f"screenshot:{screenshot_result.screenshot_id}"
+        state.metrics.screenshot_count += 1
+        state.observation.latest_screenshot_id = screenshot_result.screenshot_id
+        state.observation.latest_screenshot_path = str(screenshot_result.path)
+        state.observation.selected_screenshot_ids = [screenshot_result.screenshot_id]
+        state.observation.selected_screenshot_paths = [str(screenshot_result.path)]
+        state.observation.desktop_resolution = {
+            "width": screenshot_result.width,
+            "height": screenshot_result.height,
+        }
+        state.observation.last_observation_summary = "初始截图"
+        store.append_trace(
+            step_id=0,
+            actor="runtime",
+            event_type="initial_observation",
+            payload={
+                "description": "初始截图",
+                "result": asdict(screenshot_result),
+            },
+            status="success",
+            artifact_refs=[screenshot_ref],
+        )
+        self._emit(f"Observe   : captured initial screenshot ({screenshot_result.screenshot_id})")
 
     def _build_graph(
         self,
@@ -722,6 +760,8 @@ class AutonomousComputerRuntime:
     ) -> tuple[dict[str, Any], list[str]]:
         result_dict = asdict(gui_result)
         if self.screenshot_after_gui_action and gui_result.success:
+            if self.post_gui_screenshot_delay_seconds > 0:
+                time.sleep(self.post_gui_screenshot_delay_seconds)
             screenshot_result = self._capture_and_record_screenshot(
                 state=state,
                 store=store,
@@ -881,12 +921,15 @@ class AutonomousComputerRuntime:
             latest_screenshot_id = latest_screenshot_ref.split(":", 1)[1]
             if latest_screenshot_id != previous_latest_screenshot_id:
                 state.metrics.screenshot_count += 1
-            state.observation.latest_screenshot_id = latest_screenshot_id
-            state.observation.latest_screenshot_path = str(
+            latest_screenshot_path = str(
                 Path(state.run.root_dir)
                 / "screenshots"
-                / f"{state.observation.latest_screenshot_id}.png"
+                / f"{latest_screenshot_id}.png"
             )
+            state.observation.latest_screenshot_id = latest_screenshot_id
+            state.observation.latest_screenshot_path = latest_screenshot_path
+            state.observation.selected_screenshot_ids = [latest_screenshot_id]
+            state.observation.selected_screenshot_paths = [latest_screenshot_path]
 
         state.observation.last_observation_summary = result_summary
         state.last_action.action_id = action_id

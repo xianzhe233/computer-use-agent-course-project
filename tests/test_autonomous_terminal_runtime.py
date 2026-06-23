@@ -4,7 +4,7 @@ from typing import Sequence
 
 from computer_use_agent.autonomous_terminal_runtime import AutonomousTerminalRuntime
 from computer_use_agent.runtime_state import RuntimeState
-from computer_use_agent.terminal_agent import TerminalAgentDecision
+from computer_use_agent.computer_agent import TerminalAgentDecision
 from computer_use_agent.tools.run_command import CommandResult, PowerShellBackend
 
 

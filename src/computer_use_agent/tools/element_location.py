@@ -87,7 +87,7 @@ class UITarsElementLocator:
         max_side: int = 1344,
         max_candidates: int = 5,
     ) -> UITarsElementLocator:
-        from computer_use_agent.terminal_agent import OpenAICompatibleChatClient
+        from computer_use_agent.computer_agent import OpenAICompatibleChatClient
 
         _normalize_locator_model_alias(config_path=config_path, role=role)
         client = OpenAICompatibleChatClient.from_config_file(

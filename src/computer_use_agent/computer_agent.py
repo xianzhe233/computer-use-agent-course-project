@@ -308,6 +308,7 @@ class LLMComputerAgent:
                     "需要坐标的 GUI 动作优先使用语义目标参数（如 click.target_query、double_click.target_query、right_click.target_query、move_mouse.target_query、hover.target_query、type_text.target_query、scroll.target_query、drag.start_query/end_query），让 runtime 在内部自动定位产出点坐标",
                     "只有在你明确拥有可靠坐标证据时才直接填写 x/y；否则优先使用 target_query / start_query / end_query",
                     "语义定位失败后不要盲点，应重新截图、等待或换策略",
+                    "如果需要打开应用但不确定本机应用名，先用 run_command 执行 Get-StartApps 查询开始菜单应用名称，再把查到的名称写入 open_app.name；不要盲猜英文名、可执行文件名或窗口标题",
                     "当前命令工作目录就是 workspace",
                 ],
             },
@@ -354,6 +355,7 @@ COMPUTER_AGENT_SYSTEM_PROMPT = """
 10. GUI 动作应原子化；执行点击、输入、快捷键、拖拽后运行时会自动补截图证据。
 11. 任务完成前尽量用命令输出、截图、定位结果或 GUI 后截图作为证据。
 12. 不要只根据截图路径、截图编号或 expected_observation 判断界面；没有图片内容就先请求截图。
+13. 打开应用时优先使用 open_app；如果你不确定 open_app.name 该填什么，先用 run_command 执行 Get-StartApps 查询本机开始菜单应用名称，再根据查询结果填写准确的应用名，不要盲猜英文名、可执行文件名或窗口标题。
 
 可用工具 schema：
 - run_command: {"command": "PowerShell 命令"}
@@ -368,7 +370,7 @@ COMPUTER_AGENT_SYSTEM_PROMPT = """
 - hotkey: {"shortcut": "ctrl+s"}
 - scroll: {"target_query": "文件列表", "direction": "down", "amount": 2}；也可省略 target_query 仅在当前鼠标位置滚动
 - drag: {"start_query": "滑块起点", "end_query": "滑块终点"}；仅在坐标已可靠时才用 x1/y1/x2/y2
-- open_app: {"name": "notepad"}
+- open_app: {"name": "应用名"}；name 应尽量填写通过 Get-StartApps 查到的本机开始菜单应用名称，例如当前机器可能需要写 "记事本" 而不是 "notepad"
 - switch_app: {"name": "notepad"}
 - focus_window: {"title": "Untitled - Notepad"}
 - wait: {"seconds": 1}

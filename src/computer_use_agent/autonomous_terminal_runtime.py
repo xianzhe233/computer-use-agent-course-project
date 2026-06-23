@@ -11,7 +11,7 @@ from typing import Any, cast
 from .graph_runtime import AgentGraphState, compile_linear_agent_graph
 from .run_store import RunStore, mark_run_finished
 from .runtime_state import RuntimeState, TerminalRunStatus, create_runtime_state
-from .terminal_agent import (
+from .computer_agent import (
     AutonomousTerminalAgent,
     LLMTerminalAgent,
     TerminalAgentDecision,

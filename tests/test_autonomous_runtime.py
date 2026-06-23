@@ -1,10 +1,11 @@
 import json
 from pathlib import Path
 from typing import Sequence
+from unittest.mock import patch
 
 from computer_use_agent.autonomous_runtime import AutonomousComputerRuntime
 from computer_use_agent.runtime_state import RuntimeState
-from computer_use_agent.terminal_agent import TerminalAgentDecision
+from computer_use_agent.computer_agent import TerminalAgentDecision
 from computer_use_agent.tools.element_location import ElementLocationCandidate
 from computer_use_agent.tools.run_command import CommandResult, PowerShellBackend
 
@@ -23,6 +24,39 @@ class ScriptedComputerAgent:
     ) -> TerminalAgentDecision:
         self.calls.append((state, workspace, list(history)))
         return self.decisions.pop(0)
+
+
+class AssertSelectedScreenshotAgent:
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def decide(
+        self,
+        *,
+        state: RuntimeState,
+        workspace: Path,
+        history: Sequence[dict[str, object]],
+    ) -> TerminalAgentDecision:
+        self.call_count += 1
+        if self.call_count == 1:
+            assert state.observation.latest_screenshot_id == "ss_0001"
+            assert state.observation.selected_screenshot_ids == ["ss_0001"]
+            assert len(state.observation.selected_screenshot_paths) == 1
+            assert state.observation.selected_screenshot_paths[0].endswith("ss_0001.png")
+            return TerminalAgentDecision(
+                kind="tool_call",
+                tool_name="open_app",
+                tool_args={"name": "notepad"},
+            )
+        assert state.observation.latest_screenshot_id == "ss_0002"
+        assert state.observation.selected_screenshot_ids == ["ss_0002"]
+        assert len(state.observation.selected_screenshot_paths) == 1
+        assert state.observation.selected_screenshot_paths[0].endswith("ss_0002.png")
+        return TerminalAgentDecision(
+            kind="finish_request",
+            completion_claim="GUI 动作后的自动截图已自动进入下一轮上下文",
+            supporting_evidence=["screenshot:ss_0002"],
+        )
 
 
 class FakeScreenshotBackend:
@@ -179,10 +213,10 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
     assert state.task.task_type == "hybrid"
     assert "take_screenshot" in state.control.allowed_tools
     assert "run_command" in state.control.allowed_tools
-    assert state.metrics.screenshot_count == 3
+    assert state.metrics.screenshot_count == 4
     assert state.metrics.command_count == 0
     assert state.observation.latest_location_point == (300, 300)
-    assert state.observation.latest_screenshot_id == "ss_0003"
+    assert state.observation.latest_screenshot_id == "ss_0004"
     assert gui_backend.calls == [
         ("click", (300, 300), {"button": "left", "clicks": 1}),
         (
@@ -200,7 +234,7 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
 
     run_dir = tmp_path / "runs" / state.run.run_id
     screenshot_index = (run_dir / "screenshots" / "index.jsonl").read_text(encoding="utf-8").strip().splitlines()
-    assert len(screenshot_index) == 3
+    assert len(screenshot_index) == 4
     assert (run_dir / "locations" / "loc_0002.json").exists()
 
     trace_records = [json.loads(line) for line in (run_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -210,6 +244,8 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
         if record["event_type"] == "tool_execution"
     ]
     assert execution_results == ["take_screenshot", "click", "type_text"]
+    initial_observation = next(record for record in trace_records if record["event_type"] == "initial_observation")
+    assert initial_observation["payload"]["description"] == "初始截图"
     click_record = next(
         record
         for record in trace_records
@@ -293,7 +329,7 @@ def test_autonomous_runtime_auto_locates_semantic_click_and_type_text(tmp_path: 
         ),
         ("click", (460, 330), {"button": "left", "clicks": 1}),
     ]
-    assert state.metrics.screenshot_count == 3
+    assert state.metrics.screenshot_count == 4
     assert state.observation.latest_location_query == "提交按钮"
 
 
@@ -353,7 +389,7 @@ def test_autonomous_runtime_auto_locates_drag_start_and_end(tmp_path: Path) -> N
     assert state.run.status == "success"
     assert [call[0] for call in locator_backend.calls] == ["开始滑块", "结束滑块"]
     assert gui_backend.calls == [("drag", (120, 420, 520, 420), {})]
-    assert state.metrics.screenshot_count == 2
+    assert state.metrics.screenshot_count == 3
 
 
 def test_autonomous_computer_runtime_allows_recovery_after_validation_failure(tmp_path: Path) -> None:
@@ -384,6 +420,7 @@ def test_autonomous_computer_runtime_allows_recovery_after_validation_failure(tm
         screenshot_backend=FakeScreenshotBackend(),
         agent=agent,
         max_consecutive_failures=3,
+        capture_initial_screenshot=False,
     )
 
     state = runtime.run("先定位再截图的错误流程")
@@ -475,7 +512,43 @@ def test_autonomous_computer_runtime_supports_new_gui_tools(tmp_path: Path) -> N
         ("focus_window", ("Untitled - Notepad",), {}),
     ]
     assert state.observation.active_window_title == "Untitled - Notepad"
-    assert state.metrics.screenshot_count == 9
+    assert state.metrics.screenshot_count == 10
+
+
+def test_gui_action_auto_screenshot_is_selected_for_next_turn(tmp_path: Path) -> None:
+    runtime = AutonomousComputerRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        screenshot_backend=FakeScreenshotBackend(),
+        gui_backend=FakeGuiBackend(),
+        agent=AssertSelectedScreenshotAgent(),
+    )
+
+    state = runtime.run("打开记事本后，下一轮自动带上刚产生的截图")
+
+    assert state.run.status == "success"
+    assert state.metrics.screenshot_count == 2
+    assert state.observation.latest_screenshot_id == "ss_0002"
+    assert state.observation.selected_screenshot_ids == ["ss_0002"]
+    assert len(state.observation.selected_screenshot_paths) == 1
+    assert state.observation.selected_screenshot_paths[0].endswith("ss_0002.png")
+
+
+def test_gui_action_auto_screenshot_waits_before_capture(tmp_path: Path) -> None:
+    runtime = AutonomousComputerRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        screenshot_backend=FakeScreenshotBackend(),
+        gui_backend=FakeGuiBackend(),
+        agent=AssertSelectedScreenshotAgent(),
+        post_gui_screenshot_delay_seconds=0.25,
+    )
+
+    with patch("computer_use_agent.autonomous_runtime.time.sleep") as sleep_mock:
+        state = runtime.run("GUI 动作后等待片刻再截图")
+
+    assert state.run.status == "success"
+    sleep_mock.assert_called_with(0.25)
 
 
 def test_autonomous_computer_runtime_can_view_multiple_historical_screenshots(tmp_path: Path) -> None:
@@ -494,12 +567,12 @@ def test_autonomous_computer_runtime_can_view_multiple_historical_screenshots(tm
             TerminalAgentDecision(
                 kind="tool_call",
                 tool_name="view_screenshot",
-                tool_args={"screenshot_ids": ["ss_0001", "ss_0002"]},
+                tool_args={"screenshot_ids": ["ss_0002", "ss_0003"]},
             ),
             TerminalAgentDecision(
                 kind="finish_request",
                 completion_claim="已回看多张指定截图",
-                supporting_evidence=["screenshot:ss_0001", "screenshot:ss_0002"],
+                supporting_evidence=["screenshot:ss_0002", "screenshot:ss_0003"],
             ),
         ]
     )
@@ -514,19 +587,21 @@ def test_autonomous_computer_runtime_can_view_multiple_historical_screenshots(tm
 
     assert state.run.status == "success"
     assert "view_screenshot" in state.control.allowed_tools
-    assert state.metrics.screenshot_count == 2
-    assert state.observation.latest_screenshot_id == "ss_0002"
-    assert state.observation.selected_screenshot_ids == ["ss_0001", "ss_0002"]
-    assert state.last_action.artifact_refs == ["screenshot:ss_0001", "screenshot:ss_0002"]
+    assert state.metrics.screenshot_count == 3
+    assert state.observation.latest_screenshot_id == "ss_0003"
+    assert state.observation.selected_screenshot_ids == ["ss_0002", "ss_0003"]
+    assert state.last_action.artifact_refs == ["screenshot:ss_0002", "screenshot:ss_0003"]
 
     run_dir = tmp_path / "runs" / state.run.run_id
     trace_records = [json.loads(line) for line in (run_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
+    initial_observation = next(record for record in trace_records if record["event_type"] == "initial_observation")
+    assert initial_observation["payload"]["description"] == "初始截图"
     view_record = next(
         record
         for record in trace_records
         if record["event_type"] == "tool_execution" and record["payload"]["result"]["tool_name"] == "view_screenshot"
     )
-    assert view_record["artifact_refs"] == ["screenshot:ss_0001", "screenshot:ss_0002"]
+    assert view_record["artifact_refs"] == ["screenshot:ss_0002", "screenshot:ss_0003"]
     assert view_record["payload"]["result"]["success"] is True
 
 
