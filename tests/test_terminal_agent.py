@@ -6,9 +6,11 @@ from PIL import Image
 
 from computer_use_agent.runtime_state import create_runtime_state
 from computer_use_agent.terminal_agent import (
+    COMPUTER_AGENT_SYSTEM_PROMPT,
     LLMComputerAgent,
     OpenAICompatibleChatClient,
     OpenAICompatibleModelConfig,
+    TERMINAL_AGENT_SYSTEM_PROMPT,
     TerminalAgentProtocolError,
     parse_terminal_agent_decision,
     truncate_text,
@@ -67,19 +69,35 @@ def test_truncate_text_keeps_short_text_and_compacts_long_text() -> None:
     assert truncated != "a" * 200
 
 
-def test_llm_computer_agent_includes_latest_screenshot_as_image_content(tmp_path: Path) -> None:
-    screenshot_path = tmp_path / "ss_0001.png"
-    Image.new("RGB", (32, 24), "white").save(screenshot_path)
+def test_computer_agent_prompt_mentions_new_gui_tools() -> None:
+    assert "double_click" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "right_click" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "move_mouse" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "hover" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "scroll" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "open_app" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "switch_app" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "focus_window" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "double_click、right_click、move_mouse、hover、type_text、hotkey、scroll、drag、open_app、switch_app、focus_window" in TERMINAL_AGENT_SYSTEM_PROMPT
+
+
+def test_llm_computer_agent_includes_selected_screenshots_as_image_content(tmp_path: Path) -> None:
+    screenshot_path_1 = tmp_path / "ss_0001.png"
+    screenshot_path_2 = tmp_path / "ss_0002.png"
+    Image.new("RGB", (32, 24), "white").save(screenshot_path_1)
+    Image.new("RGB", (32, 24), "black").save(screenshot_path_2)
     state = create_runtime_state(
         user_request="观察截图",
         run_id="run_test",
         root_dir=tmp_path,
         task_type="hybrid",
-        allowed_tools=["take_screenshot"],
+        allowed_tools=["take_screenshot", "view_screenshot"],
         max_steps=3,
     )
-    state.observation.latest_screenshot_id = "ss_0001"
-    state.observation.latest_screenshot_path = str(screenshot_path)
+    state.observation.latest_screenshot_id = "ss_0002"
+    state.observation.latest_screenshot_path = str(screenshot_path_2)
+    state.observation.selected_screenshot_ids = ["ss_0001", "ss_0002"]
+    state.observation.selected_screenshot_paths = [str(screenshot_path_1), str(screenshot_path_2)]
     client = OpenAICompatibleChatClient(
         config=OpenAICompatibleModelConfig(
             provider="fake",
@@ -95,6 +113,7 @@ def test_llm_computer_agent_includes_latest_screenshot_as_image_content(tmp_path
     content = messages[1]["content"]
     assert isinstance(content, list)
     assert content[0]["type"] == "text"
-    assert "latest_screenshot:ss_0001" in content[0]["text"]
-    assert content[1]["type"] == "image_url"
-    assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert "一张或多张截图" in content[0]["text"]
+    image_parts = [part for part in content[1:] if part["type"] == "image_url"]
+    assert len(image_parts) == 2
+    assert all(part["image_url"]["url"].startswith("data:image/jpeg;base64,") for part in image_parts)

@@ -302,12 +302,12 @@ class LLMComputerAgent:
                     "不需要 examiner；认为任务完成时直接提交 finish_request",
                     "GUI 操作优先遵循 主动观察截图 -> 定位/单步动作 -> 再观察 的节奏",
                     "如果需要知道当前屏幕状态，主动调用 take_screenshot；如果需要回看历史证据，主动调用 view_screenshot",
-                    "你主动采集或回看的 latest_screenshot 会作为多模态图片直接附在下一轮消息中；不要只根据文件路径臆测屏幕状态",
+                    "你主动采集或回看的截图会作为多模态图片直接附在下一轮消息中；不要只根据文件路径臆测屏幕状态",
                     "命令成功不等于 GUI 状态正确；凡是窗口、弹窗、输入结果等视觉状态，都要用截图确认",
-                    "locate_element 依赖 latest_screenshot；如果没有截图或界面变化明显，先 take_screenshot",
-                    "需要坐标的 GUI 动作优先使用语义目标参数（如 click.target_query、type_text.target_query、drag.start_query/end_query），让 runtime 自动调用定位器产出点坐标",
+                    "如果没有合适截图或界面变化明显，先 take_screenshot 再继续操作",
+                    "需要坐标的 GUI 动作优先使用语义目标参数（如 click.target_query、double_click.target_query、right_click.target_query、move_mouse.target_query、hover.target_query、type_text.target_query、scroll.target_query、drag.start_query/end_query），让 runtime 在内部自动定位产出点坐标",
                     "只有在你明确拥有可靠坐标证据时才直接填写 x/y；否则优先使用 target_query / start_query / end_query",
-                    "定位结果现在只表示一个点击/输入点，不再依赖区域框或 UIA 兜底；定位失败后不要盲点",
+                    "语义定位失败后不要盲点，应重新截图、等待或换策略",
                     "当前命令工作目录就是 workspace",
                 ],
             },
@@ -329,8 +329,8 @@ class LLMComputerAgent:
         )
         user_content = _build_multimodal_user_content(
             text=user_text,
-            screenshot_path=state.observation.latest_screenshot_path,
-            screenshot_id=state.observation.latest_screenshot_id,
+            screenshot_ids=state.observation.selected_screenshot_ids,
+            screenshot_paths=state.observation.selected_screenshot_paths,
         )
         return [
             {"role": "system", "content": COMPUTER_AGENT_SYSTEM_PROMPT},
@@ -339,17 +339,17 @@ class LLMComputerAgent:
 
 
 COMPUTER_AGENT_SYSTEM_PROMPT = """
-你是一个 Windows computer use 自主 agent。你要根据用户任务、最近工具结果、截图/定位元信息和运行状态，逐步决定下一步。
+你是一个 Windows computer use 自主 agent。你要根据用户任务、最近工具结果、截图上下文、自动定位结果元信息和运行状态，逐步决定下一步。
 
 硬性规则：
 1. 每轮只能输出一个 JSON 对象；不要输出 Markdown、解释文字或代码块。
 2. 若还需要观察或操作环境，输出 tool_call；若你认为任务已完成，输出 finish_request。
 3. 只能调用 allowed_tools 中列出的工具；不要虚构工具或一次请求多个工具。
 4. 视觉观察必须由你主动选择：需要看当前屏幕时调用 take_screenshot；需要回看历史截图时调用 view_screenshot。
-5. take_screenshot/view_screenshot 执行后的下一轮会把对应截图作为图片内容附上；如果本轮有 latest_screenshot 图片，你必须直接观察图片内容。
+5. take_screenshot/view_screenshot 执行后的下一轮会把你选中的一张或多张截图作为图片内容附上；你必须直接观察这些图片内容。
 6. 命令成功不等于 GUI 状态正确；凡是窗口是否打开、弹窗是否出现、文本是否输入、保存是否完成等视觉状态，都要用截图确认，不能只看 exit_code。
-7. GUI 任务优先遵循 take_screenshot -> locate_element/semantic target -> 单步动作 -> take_screenshot 的节奏；定位失败后不要盲点，应重新截图、等待或换策略。
-8. 对于 click、type_text、drag 这类需要坐标的 GUI 动作，优先提供 target_query / start_query / end_query，让运行时自动调用定位器返回点坐标；只有在坐标证据明确可靠时才直接输出 x/y。
+7. GUI 任务优先遵循 take_screenshot -> semantic target -> 单步动作 -> take_screenshot 的节奏；语义定位失败后不要盲点，应重新截图、等待或换策略。
+8. 对于 click、double_click、right_click、move_mouse、hover、type_text、scroll、drag 这类需要坐标的 GUI 动作，优先提供 target_query / start_query / end_query，让运行时在内部自动定位返回点坐标；只有在坐标证据明确可靠时才直接输出 x/y。
 9. 命令应短小、非交互、可在 PowerShell 中执行；避免破坏性命令、系统级修改、无限等待和需要人工输入的命令。
 10. GUI 动作应原子化；执行点击、输入、快捷键、拖拽后运行时会自动补截图证据。
 11. 任务完成前尽量用命令输出、截图、定位结果或 GUI 后截图作为证据。
@@ -358,12 +358,19 @@ COMPUTER_AGENT_SYSTEM_PROMPT = """
 可用工具 schema：
 - run_command: {"command": "PowerShell 命令"}
 - take_screenshot: {"description": "这张截图用于观察/证明什么"}
-- view_screenshot: {"screenshot_id": "ss_0001"}
-- locate_element: {"query": "要定位的控件或元素描述"}，返回一个点坐标
+- view_screenshot: {"screenshot_ids": ["ss_0001", "ss_0002"]}；单张时也可传 {"screenshot_id": "ss_0001"}
 - click: {"target_query": "保存按钮", "button": "left", "clicks": 1}；仅在坐标已可靠时才用 {"x": 100, "y": 200, ...}
+- double_click: {"target_query": "文件图标"}；仅在坐标已可靠时才用 {"x": 100, "y": 200}
+- right_click: {"target_query": "文件项"}；仅在坐标已可靠时才用 {"x": 100, "y": 200}
+- move_mouse: {"target_query": "提示图标"}；仅在坐标已可靠时才用 {"x": 100, "y": 200}
+- hover: {"target_query": "菜单项", "duration_ms": 500}；仅在坐标已可靠时才用 x/y
 - type_text: {"text": "要输入的文本", "target_query": "搜索框", "clear": false, "caret_position": "idle", "press_enter": false}；仅在坐标已可靠时才用 x/y
 - hotkey: {"shortcut": "ctrl+s"}
+- scroll: {"target_query": "文件列表", "direction": "down", "amount": 2}；也可省略 target_query 仅在当前鼠标位置滚动
 - drag: {"start_query": "滑块起点", "end_query": "滑块终点"}；仅在坐标已可靠时才用 x1/y1/x2/y2
+- open_app: {"name": "notepad"}
+- switch_app: {"name": "notepad"}
+- focus_window: {"title": "Untitled - Notepad"}
 - wait: {"seconds": 1}
 
 工具调用 JSON：
@@ -390,7 +397,7 @@ TERMINAL_AGENT_SYSTEM_PROMPT = """
 
 硬性规则：
 1. 你只能使用一个工具：run_command。
-2. 禁止请求 GUI 工具，包括 take_screenshot、click、type_text、hotkey、drag、locate_element 等。
+2. 禁止请求 GUI 工具，包括 take_screenshot、view_screenshot、click、double_click、right_click、move_mouse、hover、type_text、hotkey、scroll、drag、open_app、switch_app、focus_window 等。
 3. 每轮只能输出一个 JSON 对象；不要输出 Markdown、解释文字或代码块。
 4. 若还需要观察或操作环境，输出 tool_call；若你认为任务已完成，输出 finish_request。
 5. 命令应短小、非交互、可在 PowerShell 中执行；避免破坏性命令、系统级修改、无限等待和需要人工输入的命令。
@@ -420,31 +427,45 @@ TERMINAL_AGENT_SYSTEM_PROMPT = """
 def _build_multimodal_user_content(
     *,
     text: str,
-    screenshot_path: str,
-    screenshot_id: str,
+    screenshot_ids: Sequence[str],
+    screenshot_paths: Sequence[str],
 ) -> ChatContent:
-    if not screenshot_path:
+    selected_pairs = [
+        (str(screenshot_id), Path(str(screenshot_path)))
+        for screenshot_id, screenshot_path in zip(screenshot_ids, screenshot_paths, strict=False)
+        if str(screenshot_id).strip() and str(screenshot_path).strip()
+    ]
+    if not selected_pairs:
         return text
 
-    path = Path(screenshot_path)
-    data_url = _screenshot_data_url(path)
-    if not data_url:
-        return text + f"\n\n[latest_screenshot:{screenshot_id} 存在于 {screenshot_path}，但本轮未能附加图片内容。]"
-
-    return [
+    missing_images: list[str] = []
+    content: list[dict[str, Any]] = [
         {
             "type": "text",
             "text": text
-            + f"\n\n本轮已附上 latest_screenshot:{screenshot_id} 的实际图片内容；请直接观察图片。",
-        },
-        {
-            "type": "image_url",
-            "image_url": {
-                "url": data_url,
-                "detail": "low",
-            },
-        },
+            + "\n\n本轮已附上你主动选择的一张或多张截图；请直接观察这些图片内容。",
+        }
     ]
+    for screenshot_id, path in selected_pairs:
+        data_url = _screenshot_data_url(path)
+        if not data_url:
+            missing_images.append(f"{screenshot_id}:{path}")
+            continue
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": data_url,
+                    "detail": "low",
+                },
+            }
+        )
+
+    if len(content) == 1:
+        return text + "\n\n[所选截图存在，但本轮未能附加图片内容：" + ", ".join(missing_images) + "]"
+    if missing_images:
+        content[0]["text"] += "\n未成功附加的截图：" + ", ".join(missing_images)
+    return content
 
 
 def _screenshot_data_url(path: Path, *, max_side: int = 1280) -> str:

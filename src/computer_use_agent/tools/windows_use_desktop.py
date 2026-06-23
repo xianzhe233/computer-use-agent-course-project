@@ -93,7 +93,7 @@ class WindowsUseDesktopBackend:
     def open_app(self, name: str) -> str:
         response, status, pid = self.launch_app(name)
         if status != 0:
-            return response
+            raise RuntimeError(response)
 
         launched = False
         target_window = None
@@ -115,12 +115,33 @@ class WindowsUseDesktopBackend:
 
         if launched and target_window is not None:
             try:
-                rect = target_window.BoundingRectangle
-                uia.Click(rect.left + 200, rect.top + 200)
+                target_window.SetActive()
             except Exception:
-                pass
+                try:
+                    rect = target_window.BoundingRectangle
+                    uia.Click(rect.left + 200, rect.top + 200)
+                except Exception:
+                    pass
             return f"{name.title()} launched."
         return f"Launching {name.title()} sent, but window not detected yet."
+
+    def switch_app(self, name: str) -> str:
+        target_window = self._find_window_by_name(name)
+        if target_window is None:
+            raise RuntimeError(f"Application {name.title()} not found.")
+        target_window.SetActive()
+        title = self._window_title(target_window) or name.title()
+        if target_window.IsMinimize():
+            return f"{title} restored from minimized and switched to it."
+        return f"Switched to {title} window."
+
+    def focus_window(self, title: str) -> str:
+        target_window = self._find_window_by_name(title)
+        if target_window is None:
+            raise RuntimeError(f"Window {title!r} not found.")
+        target_window.SetActive()
+        resolved_title = self._window_title(target_window) or title
+        return f"Focused window {resolved_title}."
 
     def get_screenshot(self, as_bytes: bool = False) -> bytes | Image.Image:
         try:
@@ -146,8 +167,6 @@ class WindowsUseDesktopBackend:
         return image.size
 
     def click(self, x: int, y: int, *, button: str = "left", clicks: int = 1) -> None:
-        loc = (x, y)
-        x, y = loc
         if clicks == 0:
             uia.SetCursorPos(x, y)
             return
@@ -163,6 +182,8 @@ class WindowsUseDesktopBackend:
             case "middle":
                 for _ in range(clicks):
                     uia.MiddleClick(x, y)
+            case _:
+                raise ValueError(f"Unsupported mouse button: {button}")
 
     def type_text(
         self,
@@ -194,16 +215,45 @@ class WindowsUseDesktopBackend:
             uia.SendKeys("{Enter}", waitTime=0.05)
 
     def move(self, x: int, y: int) -> None:
-        loc = (x, y)
-        x, y = loc
         uia.MoveTo(x, y, moveSpeed=10)
+
+    def scroll(
+        self,
+        x: int | None = None,
+        y: int | None = None,
+        *,
+        axis: Literal["horizontal", "vertical"] = "vertical",
+        direction: Literal["up", "down", "left", "right"] = "down",
+        amount: int = 1,
+    ) -> None:
+        if x is not None and y is not None:
+            self.move(x, y)
+        if amount < 1:
+            raise ValueError("amount must be >= 1")
+        match axis:
+            case "vertical":
+                match direction:
+                    case "up":
+                        uia.WheelUp(amount)
+                    case "down":
+                        uia.WheelDown(amount)
+                    case _:
+                        raise ValueError('Invalid direction. Use "up" or "down" for vertical scroll.')
+            case "horizontal":
+                match direction:
+                    case "left":
+                        uia.WheelLeft(amount)
+                    case "right":
+                        uia.WheelRight(amount)
+                    case _:
+                        raise ValueError('Invalid direction. Use "left" or "right" for horizontal scroll.')
+            case _:
+                raise ValueError('Invalid axis. Use "horizontal" or "vertical".')
 
     def drag(self, x1: int, y1: int, x2: int, y2: int) -> None:
         self.move(x1, y1)
-        loc = (x2, y2)
-        x, y = loc
         cx, cy = uia.GetCursorPos()
-        uia.DragTo(cx, cy, x, y)
+        uia.DragTo(cx, cy, x2, y2)
 
     def hotkey(self, shortcut: str) -> None:
         keys = shortcut.split("+")
@@ -216,6 +266,14 @@ class WindowsUseDesktopBackend:
                 name = KEY_ALIASES.get(key.lower(), key)
                 sendkeys_str += "{" + name + "}"
         uia.SendKeys(sendkeys_str, interval=0.01)
+
+    def _find_window_by_name(self, name: str):
+        for candidate in self._window_name_candidates(name):
+            safe_name = re.escape(candidate)
+            target_window = uia.WindowControl(RegexName=f"(?i).*{safe_name}.*")
+            if target_window.Exists(maxSearchSeconds=2):
+                return target_window
+        return None
 
     def _window_name_candidates(self, name: str) -> list[str]:
         candidates: list[str] = [name]
@@ -234,6 +292,13 @@ class WindowsUseDesktopBackend:
                 unique_candidates.append(normalized)
                 seen.add(normalized)
         return unique_candidates
+
+    @staticmethod
+    def _window_title(window: object) -> str:
+        name = getattr(window, "Name", "")
+        if isinstance(name, str):
+            return name.strip()
+        return str(name).strip()
 
     @staticmethod
     def _should_use_clipboard_paste(text: str) -> bool:

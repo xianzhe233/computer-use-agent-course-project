@@ -74,6 +74,32 @@ class FakeGuiBackend:
     def drag(self, x1: int, y1: int, x2: int, y2: int) -> None:
         self.calls.append(("drag", (x1, y1, x2, y2), {}))
 
+    def move(self, x: int, y: int) -> None:
+        self.calls.append(("move", (x, y), {}))
+
+    def scroll(
+        self,
+        x: int | None = None,
+        y: int | None = None,
+        *,
+        axis: str = "vertical",
+        direction: str = "down",
+        amount: int = 1,
+    ) -> None:
+        self.calls.append(("scroll", (), {"x": x, "y": y, "axis": axis, "direction": direction, "amount": amount}))
+
+    def open_app(self, name: str) -> str:
+        self.calls.append(("open_app", (name,), {}))
+        return f"opened {name}"
+
+    def switch_app(self, name: str) -> str:
+        self.calls.append(("switch_app", (name,), {}))
+        return f"switched {name}"
+
+    def focus_window(self, title: str) -> str:
+        self.calls.append(("focus_window", (title,), {}))
+        return f"focused {title}"
+
 
 class FakeElementLocatorBackend:
     def __init__(self, candidates: list[ElementLocationCandidate] | dict[str, list[ElementLocationCandidate]]) -> None:
@@ -117,19 +143,13 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
                 kind="tool_call",
                 thought_summary="先观察桌面",
                 tool_name="take_screenshot",
-                tool_args={"description": "before locating editor"},
+                tool_args={"description": "before clicking editor"},
             ),
             TerminalAgentDecision(
                 kind="tool_call",
-                thought_summary="定位编辑区",
-                tool_name="locate_element",
-                tool_args={"query": "编辑区"},
-            ),
-            TerminalAgentDecision(
-                kind="tool_call",
-                thought_summary="点击定位结果中心",
+                thought_summary="点击编辑区",
                 tool_name="click",
-                tool_args={"target": "last_located"},
+                tool_args={"target_query": "编辑区"},
             ),
             TerminalAgentDecision(
                 kind="tool_call",
@@ -139,7 +159,7 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
             ),
             TerminalAgentDecision(
                 kind="finish_request",
-                completion_claim="已定位编辑区并输入文本",
+                completion_claim="已点击编辑区并输入文本",
                 supporting_evidence=["screenshot:ss_0003", "location:loc_0002"],
             ),
         ]
@@ -189,13 +209,13 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
         for record in trace_records
         if record["event_type"] == "tool_execution"
     ]
-    assert execution_results == ["take_screenshot", "locate_element", "click", "type_text"]
+    assert execution_results == ["take_screenshot", "click", "type_text"]
     click_record = next(
         record
         for record in trace_records
         if record["event_type"] == "tool_execution" and record["payload"]["result"]["tool_name"] == "click"
     )
-    assert click_record["payload"]["result"]["result"]["resolved_from"] == "last_located"
+    assert click_record["payload"]["result"]["result"]["resolved_from"] == "target_query"
 
 
 def test_autonomous_runtime_auto_locates_semantic_click_and_type_text(tmp_path: Path) -> None:
@@ -341,9 +361,9 @@ def test_autonomous_computer_runtime_allows_recovery_after_validation_failure(tm
         [
             TerminalAgentDecision(
                 kind="tool_call",
-                thought_summary="错误地直接定位",
-                tool_name="locate_element",
-                tool_args={"query": "编辑区"},
+                thought_summary="错误地直接语义点击",
+                tool_name="click",
+                tool_args={"target_query": "编辑区"},
             ),
             TerminalAgentDecision(
                 kind="tool_call",
@@ -374,7 +394,7 @@ def test_autonomous_computer_runtime_allows_recovery_after_validation_failure(tm
     assert state.errors.last_error_code == ""
     assert agent.calls[1][2][0]["validation_error"] == {
         "code": "SCREENSHOT_REQUIRED",
-        "message": "locate_element requires an existing screenshot observation",
+        "message": "semantic click requires an existing screenshot observation",
     }
 
     run_dir = tmp_path / "runs" / state.run.run_id
@@ -384,7 +404,81 @@ def test_autonomous_computer_runtime_allows_recovery_after_validation_failure(tm
     assert failed_validation["payload"]["error"]["code"] == "SCREENSHOT_REQUIRED"
 
 
-def test_autonomous_computer_runtime_can_view_selected_historical_screenshot(tmp_path: Path) -> None:
+def test_autonomous_computer_runtime_supports_new_gui_tools(tmp_path: Path) -> None:
+    screenshot_backend = FakeScreenshotBackend()
+    gui_backend = FakeGuiBackend()
+    locator_backend = FakeElementLocatorBackend(
+        {
+            "文件图标": [
+                ElementLocationCandidate(point=(100, 120), confidence=0.9, source="vision", reason="icon")
+            ],
+            "列表区域": [
+                ElementLocationCandidate(point=(320, 420), confidence=0.88, source="vision", reason="list")
+            ],
+            "提示按钮": [
+                ElementLocationCandidate(point=(480, 200), confidence=0.91, source="vision", reason="hint")
+            ],
+        }
+    )
+    agent = ScriptedComputerAgent(
+        [
+            TerminalAgentDecision(kind="tool_call", tool_name="take_screenshot", tool_args={"description": "observe"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="double_click", tool_args={"target_query": "文件图标"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="right_click", tool_args={"x": 200, "y": 210}),
+            TerminalAgentDecision(kind="tool_call", tool_name="move_mouse", tool_args={"target_query": "提示按钮"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="hover", tool_args={"x": 510, "y": 220, "duration_ms": 0}),
+            TerminalAgentDecision(kind="tool_call", tool_name="scroll", tool_args={"target_query": "列表区域", "direction": "down", "amount": 2}),
+            TerminalAgentDecision(kind="tool_call", tool_name="open_app", tool_args={"name": "notepad"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="switch_app", tool_args={"name": "notepad"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="focus_window", tool_args={"title": "Untitled - Notepad"}),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="已执行新增 GUI 工具",
+                supporting_evidence=["screenshot:ss_0009"],
+            ),
+        ]
+    )
+    runtime = AutonomousComputerRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        screenshot_backend=screenshot_backend,
+        gui_backend=gui_backend,
+        element_locator_backend=locator_backend,
+        agent=agent,
+        max_steps=12,
+    )
+
+    state = runtime.run("依次测试新增 GUI 工具")
+
+    assert state.run.status == "success"
+    assert all(
+        tool in state.control.allowed_tools
+        for tool in [
+            "double_click",
+            "right_click",
+            "move_mouse",
+            "hover",
+            "scroll",
+            "open_app",
+            "switch_app",
+            "focus_window",
+        ]
+    )
+    assert gui_backend.calls == [
+        ("click", (100, 120), {"button": "left", "clicks": 2}),
+        ("click", (200, 210), {"button": "right", "clicks": 1}),
+        ("move", (480, 200), {}),
+        ("move", (510, 220), {}),
+        ("scroll", (), {"x": 320, "y": 420, "axis": "vertical", "direction": "down", "amount": 2}),
+        ("open_app", ("notepad",), {}),
+        ("switch_app", ("notepad",), {}),
+        ("focus_window", ("Untitled - Notepad",), {}),
+    ]
+    assert state.observation.active_window_title == "Untitled - Notepad"
+    assert state.metrics.screenshot_count == 9
+
+
+def test_autonomous_computer_runtime_can_view_multiple_historical_screenshots(tmp_path: Path) -> None:
     agent = ScriptedComputerAgent(
         [
             TerminalAgentDecision(
@@ -394,13 +488,18 @@ def test_autonomous_computer_runtime_can_view_selected_historical_screenshot(tmp
             ),
             TerminalAgentDecision(
                 kind="tool_call",
+                tool_name="take_screenshot",
+                tool_args={"description": "second observation"},
+            ),
+            TerminalAgentDecision(
+                kind="tool_call",
                 tool_name="view_screenshot",
-                tool_args={"screenshot_id": "ss_0001"},
+                tool_args={"screenshot_ids": ["ss_0001", "ss_0002"]},
             ),
             TerminalAgentDecision(
                 kind="finish_request",
-                completion_claim="已回看指定截图",
-                supporting_evidence=["screenshot:ss_0001"],
+                completion_claim="已回看多张指定截图",
+                supporting_evidence=["screenshot:ss_0001", "screenshot:ss_0002"],
             ),
         ]
     )
@@ -415,9 +514,10 @@ def test_autonomous_computer_runtime_can_view_selected_historical_screenshot(tmp
 
     assert state.run.status == "success"
     assert "view_screenshot" in state.control.allowed_tools
-    assert state.metrics.screenshot_count == 1
-    assert state.observation.latest_screenshot_id == "ss_0001"
-    assert state.last_action.artifact_refs == ["screenshot:ss_0001"]
+    assert state.metrics.screenshot_count == 2
+    assert state.observation.latest_screenshot_id == "ss_0002"
+    assert state.observation.selected_screenshot_ids == ["ss_0001", "ss_0002"]
+    assert state.last_action.artifact_refs == ["screenshot:ss_0001", "screenshot:ss_0002"]
 
     run_dir = tmp_path / "runs" / state.run.run_id
     trace_records = [json.loads(line) for line in (run_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -426,7 +526,7 @@ def test_autonomous_computer_runtime_can_view_selected_historical_screenshot(tmp
         for record in trace_records
         if record["event_type"] == "tool_execution" and record["payload"]["result"]["tool_name"] == "view_screenshot"
     )
-    assert view_record["artifact_refs"] == ["screenshot:ss_0001"]
+    assert view_record["artifact_refs"] == ["screenshot:ss_0001", "screenshot:ss_0002"]
     assert view_record["payload"]["result"]["success"] is True
 
 

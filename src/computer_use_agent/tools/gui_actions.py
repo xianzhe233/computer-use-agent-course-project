@@ -7,6 +7,8 @@ from typing import Literal, Protocol
 
 GuiButton = Literal["left", "right", "middle"]
 CaretPosition = Literal["start", "idle", "end"]
+ScrollAxis = Literal["horizontal", "vertical"]
+ScrollDirection = Literal["up", "down", "left", "right"]
 
 KEY_ALIASES: dict[str, str] = {
     "backspace": "backspace",
@@ -43,6 +45,19 @@ class GuiAutomationBackend(Protocol):
     ) -> None: ...
     def hotkey(self, shortcut: str) -> None: ...
     def drag(self, x1: int, y1: int, x2: int, y2: int) -> None: ...
+    def move(self, x: int, y: int) -> None: ...
+    def scroll(
+        self,
+        x: int | None = None,
+        y: int | None = None,
+        *,
+        axis: ScrollAxis = "vertical",
+        direction: ScrollDirection = "down",
+        amount: int = 1,
+    ) -> None: ...
+    def open_app(self, name: str) -> str: ...
+    def switch_app(self, name: str) -> str: ...
+    def focus_window(self, title: str) -> str: ...
 
 
 class PyAutoGuiBackend:
@@ -92,6 +107,36 @@ class PyAutoGuiBackend:
     def drag(self, x1: int, y1: int, x2: int, y2: int) -> None:
         self._pyautogui.moveTo(x=x1, y=y1, duration=0.1)
         self._pyautogui.dragTo(x=x2, y=y2, duration=0.2, button="left")
+
+    def move(self, x: int, y: int) -> None:
+        self._pyautogui.moveTo(x=x, y=y, duration=0.1)
+
+    def scroll(
+        self,
+        x: int | None = None,
+        y: int | None = None,
+        *,
+        axis: ScrollAxis = "vertical",
+        direction: ScrollDirection = "down",
+        amount: int = 1,
+    ) -> None:
+        if x is not None and y is not None:
+            self._pyautogui.moveTo(x=x, y=y, duration=0.1)
+        if axis == "vertical":
+            delta = amount if direction == "up" else -amount
+            self._pyautogui.scroll(delta)
+            return
+        delta = -amount if direction == "left" else amount
+        self._pyautogui.hscroll(delta)
+
+    def open_app(self, name: str) -> str:
+        raise RuntimeError(f"open_app requires WindowsUseDesktopBackend: {name}")
+
+    def switch_app(self, name: str) -> str:
+        raise RuntimeError(f"switch_app requires WindowsUseDesktopBackend: {name}")
+
+    def focus_window(self, title: str) -> str:
+        raise RuntimeError(f"focus_window requires WindowsUseDesktopBackend: {title}")
 
 
 def normalize_shortcut(shortcut: str) -> tuple[str, ...]:
@@ -151,6 +196,69 @@ def click(
     )
 
 
+def double_click(
+    x: int,
+    y: int,
+    *,
+    backend: GuiAutomationBackend | None = None,
+) -> GuiActionResult:
+    active_backend = backend or create_default_gui_backend()
+    return _wrap_gui_action(
+        "double_click",
+        lambda: active_backend.click(x=x, y=y, button="left", clicks=2),
+        {"x": x, "y": y, "button": "left", "clicks": 2},
+    )
+
+
+def right_click(
+    x: int,
+    y: int,
+    *,
+    backend: GuiAutomationBackend | None = None,
+) -> GuiActionResult:
+    active_backend = backend or create_default_gui_backend()
+    return _wrap_gui_action(
+        "right_click",
+        lambda: active_backend.click(x=x, y=y, button="right", clicks=1),
+        {"x": x, "y": y, "button": "right", "clicks": 1},
+    )
+
+
+def move_mouse(
+    x: int,
+    y: int,
+    *,
+    backend: GuiAutomationBackend | None = None,
+) -> GuiActionResult:
+    active_backend = backend or create_default_gui_backend()
+    return _wrap_gui_action(
+        "move_mouse",
+        lambda: active_backend.move(x=x, y=y),
+        {"x": x, "y": y},
+    )
+
+
+def hover(
+    x: int,
+    y: int,
+    *,
+    duration_ms: int = 500,
+    backend: GuiAutomationBackend | None = None,
+) -> GuiActionResult:
+    active_backend = backend or create_default_gui_backend()
+
+    def _run() -> None:
+        active_backend.move(x=x, y=y)
+        if duration_ms > 0:
+            time.sleep(duration_ms / 1000)
+
+    return _wrap_gui_action(
+        "hover",
+        _run,
+        {"x": x, "y": y, "duration_ms": duration_ms},
+    )
+
+
 def type_text(
     text: str,
     *,
@@ -193,6 +301,36 @@ def hotkey(shortcut: str, *, backend: GuiAutomationBackend | None = None) -> Gui
     )
 
 
+def scroll(
+    *,
+    direction: ScrollDirection = "down",
+    amount: int = 1,
+    x: int | None = None,
+    y: int | None = None,
+    axis: ScrollAxis | None = None,
+    backend: GuiAutomationBackend | None = None,
+) -> GuiActionResult:
+    active_backend = backend or create_default_gui_backend()
+    resolved_axis: ScrollAxis = axis or ("horizontal" if direction in {"left", "right"} else "vertical")
+    return _wrap_gui_action(
+        "scroll",
+        lambda: active_backend.scroll(
+            x=x,
+            y=y,
+            axis=resolved_axis,
+            direction=direction,
+            amount=amount,
+        ),
+        {
+            "x": x,
+            "y": y,
+            "axis": resolved_axis,
+            "direction": direction,
+            "amount": amount,
+        },
+    )
+
+
 def drag(
     x1: int,
     y1: int,
@@ -207,3 +345,33 @@ def drag(
         lambda: active_backend.drag(x1=x1, y1=y1, x2=x2, y2=y2),
         {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
     )
+
+
+def open_app(name: str, *, backend: GuiAutomationBackend | None = None) -> GuiActionResult:
+    active_backend = backend or create_default_gui_backend()
+    result = {"name": name, "message": ""}
+
+    def _run() -> None:
+        result["message"] = active_backend.open_app(name)
+
+    return _wrap_gui_action("open_app", _run, result)
+
+
+def switch_app(name: str, *, backend: GuiAutomationBackend | None = None) -> GuiActionResult:
+    active_backend = backend or create_default_gui_backend()
+    result = {"name": name, "message": ""}
+
+    def _run() -> None:
+        result["message"] = active_backend.switch_app(name)
+
+    return _wrap_gui_action("switch_app", _run, result)
+
+
+def focus_window(title: str, *, backend: GuiAutomationBackend | None = None) -> GuiActionResult:
+    active_backend = backend or create_default_gui_backend()
+    result = {"title": title, "message": ""}
+
+    def _run() -> None:
+        result["message"] = active_backend.focus_window(title)
+
+    return _wrap_gui_action("focus_window", _run, result)

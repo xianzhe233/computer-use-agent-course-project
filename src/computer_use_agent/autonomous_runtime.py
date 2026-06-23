@@ -35,10 +35,18 @@ from .tools import (
     ScreenshotResult,
     click,
     create_default_element_locator_backend,
+    double_click,
     drag,
+    focus_window,
     hotkey,
+    hover,
     locate_element,
+    move_mouse,
+    open_app,
+    right_click,
     run_command,
+    scroll,
+    switch_app,
     take_screenshot,
     type_text,
     wait,
@@ -50,15 +58,22 @@ AUTONOMOUS_COMPUTER_TOOLS: list[str] = [
     "run_command",
     "take_screenshot",
     "view_screenshot",
-    "locate_element",
     "click",
+    "double_click",
+    "right_click",
+    "move_mouse",
+    "hover",
     "type_text",
     "hotkey",
+    "scroll",
     "drag",
+    "open_app",
+    "switch_app",
+    "focus_window",
     "wait",
 ]
 
-AUTO_LOCATE_TOOL_NAMES = {"click", "type_text"}
+AUTO_LOCATE_TOOL_NAMES = {"click", "double_click", "right_click", "move_mouse", "hover", "type_text", "scroll"}
 
 
 class AutonomousComputerRuntime:
@@ -424,25 +439,13 @@ class AutonomousComputerRuntime:
         if tool_name == "view_screenshot":
             result_dict = self._view_screenshot_result(
                 state=state,
-                screenshot_id=str(tool_args["screenshot_id"]),
+                screenshot_ids=self._view_screenshot_ids(tool_args),
             )
             if result_dict["success"]:
-                artifact_refs.append(f"screenshot:{result_dict['screenshot_id']}")
+                artifact_refs.extend(
+                    f"screenshot:{screenshot_id}" for screenshot_id in result_dict.get("screenshot_ids", [])
+                )
             return result_dict, artifact_refs
-
-        if tool_name == "locate_element":
-            screenshot_path = Path(state.observation.latest_screenshot_path)
-            screenshot_id = state.observation.latest_screenshot_id
-            location_result = locate_element(
-                query=str(tool_args["query"]),
-                screenshot_path=screenshot_path,
-                screenshot_id=screenshot_id,
-                backend=self._locator_backend(),
-            )
-            location_artifacts = store.write_location_result(step_id=step_id, result=location_result)
-            artifact_refs.extend(location_result.artifacts)
-            artifact_refs.append(location_artifacts["artifact_ref"])
-            return asdict(location_result), artifact_refs
 
         auto_locate_result: ElementLocationResult | None = None
         if tool_name in AUTO_LOCATE_TOOL_NAMES:
@@ -464,21 +467,59 @@ class AutonomousComputerRuntime:
                     failure_result["result"] = {"auto_locate_query": self._auto_locate_query(decision.tool_args)}
                     return failure_result, artifact_refs
 
-        if tool_name == "click":
+        if tool_name in {"click", "double_click", "right_click"}:
             click_x, click_y, resolved_from = self._resolve_click_coordinates(
                 state=state,
                 tool_args=tool_args,
                 auto_locate_result=auto_locate_result,
             )
-            gui_result = click(
-                click_x,
-                click_y,
-                button=self._button_value(tool_args.get("button", "left")),
-                clicks=self._optional_int(tool_args.get("clicks"), default=1) or 1,
-                backend=self.gui_backend,
-            )
+            if tool_name == "double_click":
+                gui_result = double_click(click_x, click_y, backend=self.gui_backend)
+            elif tool_name == "right_click":
+                gui_result = right_click(click_x, click_y, backend=self.gui_backend)
+            else:
+                gui_result = click(
+                    click_x,
+                    click_y,
+                    button=self._button_value(tool_args.get("button", "left")),
+                    clicks=self._optional_int(tool_args.get("clicks"), default=1) or 1,
+                    backend=self.gui_backend,
+                )
             gui_result.result["x"] = click_x
             gui_result.result["y"] = click_y
+            if resolved_from:
+                gui_result.result["resolved_from"] = resolved_from
+            result_dict, artifact_refs = self._attach_post_action_screenshot(
+                state=state,
+                store=store,
+                step_id=step_id,
+                action_id=action_id,
+                tool_name=tool_name,
+                gui_result=gui_result,
+                artifact_refs=artifact_refs,
+            )
+            return self._attach_location_metadata(result_dict, auto_locate_result), artifact_refs
+
+        if tool_name in {"move_mouse", "hover"}:
+            move_x, move_y, resolved_from = self._resolve_optional_point(
+                state=state,
+                tool_args=tool_args,
+                keys=("x", "y"),
+                query_keys=("target_query", "query"),
+                auto_locate_result=auto_locate_result,
+            )
+            if move_x is None or move_y is None:
+                raise ValueError(f"{tool_name} requires x/y or target_query")
+            gui_result = (
+                hover(
+                    move_x,
+                    move_y,
+                    duration_ms=self._optional_int(tool_args.get("duration_ms"), default=500) or 500,
+                    backend=self.gui_backend,
+                )
+                if tool_name == "hover"
+                else move_mouse(move_x, move_y, backend=self.gui_backend)
+            )
             if resolved_from:
                 gui_result.result["resolved_from"] = resolved_from
             result_dict, artifact_refs = self._attach_post_action_screenshot(
@@ -533,6 +574,34 @@ class AutonomousComputerRuntime:
                 gui_result=gui_result,
                 artifact_refs=artifact_refs,
             )
+
+        if tool_name == "scroll":
+            scroll_x, scroll_y, resolved_from = self._resolve_optional_point(
+                state=state,
+                tool_args=tool_args,
+                keys=("x", "y"),
+                query_keys=("target_query", "query"),
+                auto_locate_result=auto_locate_result,
+            )
+            gui_result = scroll(
+                direction=self._scroll_direction(tool_args.get("direction", "down")),
+                amount=self._optional_int(tool_args.get("amount", tool_args.get("wheel_times")), default=1) or 1,
+                x=scroll_x,
+                y=scroll_y,
+                backend=self.gui_backend,
+            )
+            if resolved_from:
+                gui_result.result["resolved_from"] = resolved_from
+            result_dict, artifact_refs = self._attach_post_action_screenshot(
+                state=state,
+                store=store,
+                step_id=step_id,
+                action_id=action_id,
+                tool_name=tool_name,
+                gui_result=gui_result,
+                artifact_refs=artifact_refs,
+            )
+            return self._attach_location_metadata(result_dict, auto_locate_result), artifact_refs
 
         if tool_name == "drag":
             start_query = str(tool_args.get("start_query", "")).strip()
@@ -613,6 +682,27 @@ class AutonomousComputerRuntime:
             )
             return self._attach_location_metadata(result_dict, end_location or start_location), artifact_refs
 
+        if tool_name in {"open_app", "switch_app", "focus_window"}:
+            if tool_name == "open_app":
+                gui_result = open_app(str(tool_args["name"]), backend=self.gui_backend)
+                state.observation.active_window_title = str(tool_args["name"])
+            elif tool_name == "switch_app":
+                gui_result = switch_app(str(tool_args["name"]), backend=self.gui_backend)
+                state.observation.active_window_title = str(tool_args["name"])
+            else:
+                window_title = str(tool_args.get("title", tool_args.get("name", "")))
+                gui_result = focus_window(window_title, backend=self.gui_backend)
+                state.observation.active_window_title = window_title
+            return self._attach_post_action_screenshot(
+                state=state,
+                store=store,
+                step_id=step_id,
+                action_id=action_id,
+                tool_name=tool_name,
+                gui_result=gui_result,
+                artifact_refs=artifact_refs,
+            )
+
         if tool_name == "wait":
             wait_result = wait(self._required_int(tool_args, "seconds"))
             return asdict(wait_result), artifact_refs
@@ -665,52 +755,57 @@ class AutonomousComputerRuntime:
         store.write_screenshot_result(screenshot_result, description=description)
         return screenshot_result
 
-    def _view_screenshot_result(self, *, state: RuntimeState, screenshot_id: str) -> dict[str, Any]:
+    def _view_screenshot_result(self, *, state: RuntimeState, screenshot_ids: list[str]) -> dict[str, Any]:
         started_at = time.perf_counter()
         viewed_at = datetime.now(UTC).isoformat()
-        normalized_id = screenshot_id.strip()
-        screenshot_path = Path(state.run.root_dir) / "screenshots" / f"{normalized_id}.png"
-        if not normalized_id:
+        normalized_ids = [screenshot_id.strip() for screenshot_id in screenshot_ids if screenshot_id.strip()]
+        if not normalized_ids:
             return {
                 "tool_name": "view_screenshot",
-                "screenshot_id": screenshot_id,
-                "path": "",
-                "width": 0,
-                "height": 0,
+                "screenshot_ids": [],
+                "screenshots": [],
                 "success": False,
                 "duration_ms": int((time.perf_counter() - started_at) * 1000),
                 "timestamp": viewed_at,
-                "note": "screenshot_id must not be empty",
-                "error": {"code": "INVALID_SCREENSHOT_ID", "message": "view_screenshot requires screenshot_id"},
-            }
-        if not screenshot_path.exists():
-            return {
-                "tool_name": "view_screenshot",
-                "screenshot_id": normalized_id,
-                "path": str(screenshot_path),
-                "width": 0,
-                "height": 0,
-                "success": False,
-                "duration_ms": int((time.perf_counter() - started_at) * 1000),
-                "timestamp": viewed_at,
-                "note": "screenshot not found",
-                "error": {
-                    "code": "SCREENSHOT_NOT_FOUND",
-                    "message": f"Screenshot not found: {screenshot_path}",
-                },
+                "note": "screenshot_ids must not be empty",
+                "error": {"code": "INVALID_SCREENSHOT_ID", "message": "view_screenshot requires non-empty screenshot_ids"},
             }
 
-        width, height = _read_image_size(screenshot_path)
+        screenshots: list[dict[str, Any]] = []
+        for screenshot_id in normalized_ids:
+            screenshot_path = Path(state.run.root_dir) / "screenshots" / f"{screenshot_id}.png"
+            if not screenshot_path.exists():
+                return {
+                    "tool_name": "view_screenshot",
+                    "screenshot_ids": normalized_ids,
+                    "screenshots": screenshots,
+                    "success": False,
+                    "duration_ms": int((time.perf_counter() - started_at) * 1000),
+                    "timestamp": viewed_at,
+                    "note": "screenshot not found",
+                    "error": {
+                        "code": "SCREENSHOT_NOT_FOUND",
+                        "message": f"Screenshot not found: {screenshot_path}",
+                    },
+                }
+            width, height = _read_image_size(screenshot_path)
+            screenshots.append(
+                {
+                    "screenshot_id": screenshot_id,
+                    "path": str(screenshot_path),
+                    "width": width,
+                    "height": height,
+                }
+            )
+
         return {
             "tool_name": "view_screenshot",
-            "screenshot_id": normalized_id,
-            "path": str(screenshot_path),
-            "width": width,
-            "height": height,
+            "screenshot_ids": normalized_ids,
+            "screenshots": screenshots,
             "success": True,
             "duration_ms": int((time.perf_counter() - started_at) * 1000),
             "timestamp": viewed_at,
-            "note": "selected screenshot for visual context",
+            "note": "selected screenshots for visual context",
             "error": None,
         }
 
@@ -753,6 +848,8 @@ class AutonomousComputerRuntime:
             state.metrics.screenshot_count += 1
             state.observation.latest_screenshot_id = str(result["screenshot_id"])
             state.observation.latest_screenshot_path = str(result["path"])
+            state.observation.selected_screenshot_ids = [state.observation.latest_screenshot_id]
+            state.observation.selected_screenshot_paths = [state.observation.latest_screenshot_path]
             state.observation.desktop_resolution = {
                 "width": int(result.get("width", 0)),
                 "height": int(result.get("height", 0)),
@@ -760,14 +857,13 @@ class AutonomousComputerRuntime:
             result_summary = str(result.get("note") or result.get("path"))
         elif decision.tool_name == "view_screenshot":
             if success:
-                state.observation.latest_screenshot_id = str(result["screenshot_id"])
-                state.observation.latest_screenshot_path = str(result["path"])
-                state.observation.desktop_resolution = {
-                    "width": int(result.get("width", 0)),
-                    "height": int(result.get("height", 0)),
-                }
-            result_summary = str(result.get("note") or result.get("path"))
-        elif decision.tool_name == "locate_element" or self._artifact_ref(artifact_refs, prefix="location:") is not None:
+                screenshots = result.get("screenshots", [])
+                state.observation.selected_screenshot_ids = self._string_list(result.get("screenshot_ids", []))
+                state.observation.selected_screenshot_paths = [
+                    str(item.get("path", "")) for item in screenshots if isinstance(item, dict) and item.get("path")
+                ]
+            result_summary = str(result.get("note") or "selected screenshots for visual context")
+        elif self._artifact_ref(artifact_refs, prefix="location:") is not None:
             self._update_location_observation_from_result(state=state, result=result, artifact_refs=artifact_refs)
             if decision.tool_name == "locate_element":
                 result_summary = str(result.get("reason") or "located element candidate")
@@ -781,7 +877,7 @@ class AutonomousComputerRuntime:
             result_summary = self._generic_gui_result_summary(decision=decision, result=result)
 
         latest_screenshot_ref = self._artifact_ref(artifact_refs, prefix="screenshot:")
-        if latest_screenshot_ref is not None and decision.tool_name not in {"take_screenshot", "view_screenshot", "locate_element"}:
+        if latest_screenshot_ref is not None and decision.tool_name not in {"take_screenshot", "view_screenshot"}:
             latest_screenshot_id = latest_screenshot_ref.split(":", 1)[1]
             if latest_screenshot_id != previous_latest_screenshot_id:
                 state.metrics.screenshot_count += 1
@@ -840,48 +936,55 @@ class AutonomousComputerRuntime:
             case "take_screenshot":
                 return None
             case "view_screenshot":
-                screenshot_id = str(tool_args.get("screenshot_id", "")).strip()
-                if not screenshot_id:
-                    return {"code": "INVALID_SCREENSHOT_ID", "message": "view_screenshot requires screenshot_id"}
-                screenshot_path = Path(state.run.root_dir) / "screenshots" / f"{screenshot_id}.png"
-                if not screenshot_path.exists():
-                    return {
-                        "code": "SCREENSHOT_NOT_FOUND",
-                        "message": f"Screenshot not found: {screenshot_path}",
-                    }
-            case "locate_element":
-                query = str(tool_args.get("query", "")).strip()
-                if not query:
-                    return {"code": "INVALID_QUERY", "message": "locate_element requires query"}
-                if not state.observation.latest_screenshot_path:
-                    return {
-                        "code": "SCREENSHOT_REQUIRED",
-                        "message": "locate_element requires an existing screenshot observation",
-                    }
-            case "click":
-                target = str(tool_args.get("target", "")).strip()
-                target_query = str(tool_args.get("target_query", tool_args.get("query", ""))).strip()
-                if target == "last_located":
-                    if state.observation.latest_location_point is None:
+                screenshot_ids = self._view_screenshot_ids(tool_args)
+                if not screenshot_ids:
+                    return {"code": "INVALID_SCREENSHOT_ID", "message": "view_screenshot requires non-empty screenshot_ids"}
+                for screenshot_id in screenshot_ids:
+                    screenshot_path = Path(state.run.root_dir) / "screenshots" / f"{screenshot_id}.png"
+                    if not screenshot_path.exists():
                         return {
-                            "code": "LOCATION_REQUIRED",
-                            "message": "click target=last_located requires a successful locate_element result",
+                            "code": "SCREENSHOT_NOT_FOUND",
+                            "message": f"Screenshot not found: {screenshot_path}",
                         }
-                elif target_query:
+            case "click" | "double_click" | "right_click":
+                target_query = str(tool_args.get("target_query", tool_args.get("query", ""))).strip()
+                if target_query:
                     if not state.observation.latest_screenshot_path:
                         return {
                             "code": "SCREENSHOT_REQUIRED",
-                            "message": "semantic click requires an existing screenshot observation",
+                            "message": f"semantic {decision.tool_name} requires an existing screenshot observation",
                         }
                 elif not self._has_coordinates(tool_args, keys=("x", "y")):
-                    return {"code": "INVALID_COORDINATES", "message": "click requires x/y, target=last_located, or target_query"}
+                    return {"code": "INVALID_COORDINATES", "message": f"{decision.tool_name} requires x/y or target_query"}
                 elif not self._coordinates_in_bounds(state, self._required_int(tool_args, "x"), self._required_int(tool_args, "y")):
-                    return {"code": "INVALID_COORDINATES", "message": "click coordinates are outside screen bounds"}
-                clicks = self._optional_int(tool_args.get("clicks"), default=1) or 1
-                if clicks < 1 or clicks > 2:
-                    return {"code": "INVALID_TOOL_ARGS", "message": "clicks must be 1 or 2"}
-                if tool_args.get("button", "left") not in {"left", "right", "middle"}:
-                    return {"code": "INVALID_TOOL_ARGS", "message": "button must be left, right or middle"}
+                    return {"code": "INVALID_COORDINATES", "message": f"{decision.tool_name} coordinates are outside screen bounds"}
+                if decision.tool_name == "click":
+                    clicks = self._optional_int(tool_args.get("clicks"), default=1) or 1
+                    if clicks < 1 or clicks > 2:
+                        return {"code": "INVALID_TOOL_ARGS", "message": "clicks must be 1 or 2"}
+                    if tool_args.get("button", "left") not in {"left", "right", "middle"}:
+                        return {"code": "INVALID_TOOL_ARGS", "message": "button must be left, right or middle"}
+            case "move_mouse" | "hover":
+                x_value = tool_args.get("x")
+                y_value = tool_args.get("y")
+                target_query = str(tool_args.get("target_query", tool_args.get("query", ""))).strip()
+                if target_query and not state.observation.latest_screenshot_path:
+                    return {
+                        "code": "SCREENSHOT_REQUIRED",
+                        "message": f"semantic {decision.tool_name} requires an existing screenshot observation",
+                    }
+                if target_query:
+                    return None
+                if x_value is None or y_value is None:
+                    return {"code": "INVALID_COORDINATES", "message": f"{decision.tool_name} requires x/y or target_query"}
+                if not isinstance(x_value, int | float) or not isinstance(y_value, int | float):
+                    return {"code": "INVALID_COORDINATES", "message": f"{decision.tool_name} x/y must be numeric"}
+                if not self._coordinates_in_bounds(state, int(x_value), int(y_value)):
+                    return {"code": "INVALID_COORDINATES", "message": f"{decision.tool_name} coordinates are outside screen bounds"}
+                if decision.tool_name == "hover":
+                    duration_ms = self._optional_int(tool_args.get("duration_ms"), default=500) or 500
+                    if duration_ms < 0 or duration_ms > 30000:
+                        return {"code": "INVALID_TOOL_ARGS", "message": "hover duration_ms must be between 0 and 30000"}
             case "type_text":
                 text = tool_args.get("text")
                 if not isinstance(text, str) or not text:
@@ -910,6 +1013,28 @@ class AutonomousComputerRuntime:
                 shortcut = str(tool_args.get("shortcut", "")).strip()
                 if not shortcut:
                     return {"code": "INVALID_TOOL_ARGS", "message": "hotkey requires shortcut"}
+            case "scroll":
+                x_value = tool_args.get("x")
+                y_value = tool_args.get("y")
+                target_query = str(tool_args.get("target_query", tool_args.get("query", ""))).strip()
+                if target_query and not state.observation.latest_screenshot_path:
+                    return {
+                        "code": "SCREENSHOT_REQUIRED",
+                        "message": "semantic scroll requires an existing screenshot observation",
+                    }
+                if (x_value is None) ^ (y_value is None):
+                    return {"code": "INVALID_COORDINATES", "message": "scroll x/y must be provided together"}
+                if x_value is not None and y_value is not None:
+                    if not isinstance(x_value, int | float) or not isinstance(y_value, int | float):
+                        return {"code": "INVALID_COORDINATES", "message": "scroll x/y must be numeric"}
+                    if not self._coordinates_in_bounds(state, int(x_value), int(y_value)):
+                        return {"code": "INVALID_COORDINATES", "message": "scroll coordinates are outside screen bounds"}
+                direction = tool_args.get("direction", "down")
+                if direction not in {"up", "down", "left", "right"}:
+                    return {"code": "INVALID_TOOL_ARGS", "message": "scroll direction must be up, down, left or right"}
+                amount_value = tool_args.get("amount", tool_args.get("wheel_times", 1))
+                if not isinstance(amount_value, int | float) or int(amount_value) < 1 or int(amount_value) > 100:
+                    return {"code": "INVALID_TOOL_ARGS", "message": "scroll amount must be between 1 and 100"}
             case "drag":
                 has_numeric_coords = self._has_coordinates(tool_args, keys=("x1", "y1", "x2", "y2"))
                 has_semantic_drag = any(str(tool_args.get(key, "")).strip() for key in ("start_query", "target_query", "end_query", "query"))
@@ -934,6 +1059,14 @@ class AutonomousComputerRuntime:
                         "code": "SCREENSHOT_REQUIRED",
                         "message": "semantic drag requires an existing screenshot observation",
                     }
+            case "open_app" | "switch_app":
+                name = str(tool_args.get("name", "")).strip()
+                if not name:
+                    return {"code": "INVALID_TOOL_ARGS", "message": f"{decision.tool_name} requires name"}
+            case "focus_window":
+                title = str(tool_args.get("title", tool_args.get("name", ""))).strip()
+                if not title:
+                    return {"code": "INVALID_TOOL_ARGS", "message": "focus_window requires title or name"}
             case "wait":
                 seconds_value = tool_args.get("seconds", 0)
                 if not isinstance(seconds_value, int | float):
@@ -1163,9 +1296,12 @@ class AutonomousComputerRuntime:
             self._emit("Stderr    :" if stderr else "Stderr    : <empty>")
             if stderr:
                 self._emit(_indent_block(stderr))
-        elif tool_name in {"take_screenshot", "view_screenshot"}:
+        elif tool_name == "take_screenshot":
             self._emit(f"Screenshot: {result.get('screenshot_id')} {result.get('path')}")
-        elif tool_name == "locate_element" or result.get("point") is not None:
+        elif tool_name == "view_screenshot":
+            screenshot_ids = ', '.join(self._string_list(result.get('screenshot_ids', [])))
+            self._emit(f"Screenshots: {screenshot_ids}")
+        elif result.get("point") is not None:
             self._emit(
                 f"Location  : point={result.get('point')} confidence={result.get('confidence')} "
                 f"source={result.get('source')} reason={result.get('reason')}"
@@ -1287,15 +1423,30 @@ class AutonomousComputerRuntime:
             return f"typed {typed_length} characters"
         if decision.tool_name == "wait":
             return f"waited {result.get('result', {}).get('seconds', 0)} seconds"
-        if decision.tool_name == "click":
+        if decision.tool_name in {"click", "double_click", "right_click", "move_mouse", "hover"}:
             click_result = result.get("result", {})
-            return f"clicked at ({click_result.get('x')}, {click_result.get('y')})"
+            action = {
+                "click": "clicked",
+                "double_click": "double-clicked",
+                "right_click": "right-clicked",
+                "move_mouse": "moved mouse to",
+                "hover": "hovered at",
+            }[decision.tool_name]
+            return f"{action} ({click_result.get('x')}, {click_result.get('y')})"
+        if decision.tool_name == "scroll":
+            scroll_result = result.get("result", {})
+            return (
+                f"scrolled {scroll_result.get('axis')} {scroll_result.get('direction')} "
+                f"by {scroll_result.get('amount')}"
+            )
         if decision.tool_name == "drag":
             drag_result = result.get("result", {})
             return (
                 f"dragged from ({drag_result.get('x1')}, {drag_result.get('y1')}) "
                 f"to ({drag_result.get('x2')}, {drag_result.get('y2')})"
             )
+        if decision.tool_name in {"open_app", "switch_app", "focus_window"}:
+            return str(result.get("result", {}).get("message", "")).strip() or f"{decision.tool_name} executed"
         return f"{decision.tool_name} executed"
 
     def _resolve_click_coordinates(
@@ -1305,15 +1456,9 @@ class AutonomousComputerRuntime:
         tool_args: dict[str, object],
         auto_locate_result: ElementLocationResult | None,
     ) -> tuple[int, int, str]:
-        target = str(tool_args.get("target", "")).strip()
         if auto_locate_result is not None and auto_locate_result.success and auto_locate_result.point is not None:
             x, y = auto_locate_result.point
             return x, y, "target_query"
-        if target == "last_located":
-            if state.observation.latest_location_point is None:
-                raise ValueError("No latest located point available")
-            x, y = state.observation.latest_location_point
-            return x, y, "last_located"
         return self._required_int(tool_args, "x"), self._required_int(tool_args, "y"), ""
 
     def _resolve_optional_point(
@@ -1361,6 +1506,14 @@ class AutonomousComputerRuntime:
         return [str(item) for item in value]
 
     @staticmethod
+    def _view_screenshot_ids(tool_args: dict[str, object]) -> list[str]:
+        screenshot_ids = tool_args.get("screenshot_ids")
+        if isinstance(screenshot_ids, list):
+            return [str(item).strip() for item in screenshot_ids if str(item).strip()]
+        screenshot_id = str(tool_args.get("screenshot_id", "")).strip()
+        return [screenshot_id] if screenshot_id else []
+
+    @staticmethod
     def _artifact_ref(artifact_refs: list[str], *, prefix: str) -> str | None:
         for artifact_ref in reversed(artifact_refs):
             if artifact_ref.startswith(prefix):
@@ -1404,6 +1557,12 @@ class AutonomousComputerRuntime:
         if value not in {"start", "idle", "end"}:
             raise ValueError("caret_position must be start, idle or end")
         return cast(Literal["start", "idle", "end"], value)
+
+    @staticmethod
+    def _scroll_direction(value: object) -> Literal["up", "down", "left", "right"]:
+        if value not in {"up", "down", "left", "right"}:
+            raise ValueError("scroll direction must be up, down, left or right")
+        return cast(Literal["up", "down", "left", "right"], value)
 
     @staticmethod
     def _coordinates_in_bounds(state: RuntimeState, x: int, y: int) -> bool:
