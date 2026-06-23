@@ -38,7 +38,7 @@ class RunState:
 @dataclass(slots=True)
 class ControlState:
     max_steps: int = 0
-    step_timeout_seconds: int = 10
+    step_timeout_seconds: int = 180
     allowed_tools: list[str] = field(default_factory=list)
     terminated_reason: str = ""
 
@@ -124,7 +124,7 @@ def create_runtime_state(
     task_type: str = "terminal",
     allowed_tools: list[str] | None = None,
     max_steps: int = 0,
-    step_timeout_seconds: int = 10,
+    step_timeout_seconds: int = 180,
 ) -> RuntimeState:
     created_at = datetime.now(UTC).isoformat()
     task = TaskState(user_request=user_request, task_type=task_type, goal_summary=user_request.strip())

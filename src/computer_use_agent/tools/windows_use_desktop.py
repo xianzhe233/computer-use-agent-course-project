@@ -26,7 +26,7 @@ class WindowsUseDesktopBackend:
     def execute_command(
         self,
         command: str,
-        timeout: int = 10,
+        timeout: int = 180,
         cwd: Path | None = None,
     ) -> tuple[str, int]:
         try:

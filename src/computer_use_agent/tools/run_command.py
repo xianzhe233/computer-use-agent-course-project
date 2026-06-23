@@ -31,7 +31,7 @@ class WindowsUseCommandBackend(Protocol):
     def execute_command(
         self,
         command: str,
-        timeout: int = 10,
+        timeout: int = 180,
         cwd: Path | None = None,
     ) -> tuple[str, int]: ...
 
@@ -53,7 +53,7 @@ class PowerShellBackend:
         self.executable = executable
         self.desktop_backend = desktop_backend
 
-    def execute(self, command: str, timeout: int = 10, cwd: Path | None = None) -> CommandResult:
+    def execute(self, command: str, timeout: int = 180, cwd: Path | None = None) -> CommandResult:
         started_at = time.perf_counter()
         working_dir = cwd or Path(os.path.expanduser("~"))
 
@@ -182,7 +182,7 @@ def _create_windows_use_command_backend() -> WindowsUseCommandBackend | None:
 
 def run_command(
     command: str,
-    timeout_s: int = 10,
+    timeout_s: int = 180,
     cwd: Path | None = None,
     backend: PowerShellBackend | None = None,
 ) -> CommandResult:

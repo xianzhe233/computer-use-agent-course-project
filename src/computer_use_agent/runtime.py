@@ -70,7 +70,7 @@ class TerminalRuntime:
             task_type=task.task_type if task else "terminal",
             allowed_tools=self._allowed_tools(task),
             max_steps=self.max_steps,
-            step_timeout_seconds=10,
+            step_timeout_seconds=180,
         )
         started_at = time.perf_counter()
 
@@ -306,7 +306,7 @@ class TerminalRuntime:
         if tool_name == "run_command":
             result = run_command(
                 command=str(tool_args["command"]),
-                timeout_s=10,
+                timeout_s=180,
                 cwd=self.workspace,
                 backend=self.command_backend,
             )
