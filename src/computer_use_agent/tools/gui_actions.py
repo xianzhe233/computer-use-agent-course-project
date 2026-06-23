@@ -349,7 +349,7 @@ def drag(
 
 def open_app(name: str, *, backend: GuiAutomationBackend | None = None) -> GuiActionResult:
     active_backend = backend or create_default_gui_backend()
-    result = {"name": name, "message": ""}
+    result: dict[str, object] = {"name": name, "message": ""}
 
     def _run() -> None:
         result["message"] = active_backend.open_app(name)
@@ -359,7 +359,7 @@ def open_app(name: str, *, backend: GuiAutomationBackend | None = None) -> GuiAc
 
 def switch_app(name: str, *, backend: GuiAutomationBackend | None = None) -> GuiActionResult:
     active_backend = backend or create_default_gui_backend()
-    result = {"name": name, "message": ""}
+    result: dict[str, object] = {"name": name, "message": ""}
 
     def _run() -> None:
         result["message"] = active_backend.switch_app(name)
@@ -369,7 +369,7 @@ def switch_app(name: str, *, backend: GuiAutomationBackend | None = None) -> Gui
 
 def focus_window(title: str, *, backend: GuiAutomationBackend | None = None) -> GuiActionResult:
     active_backend = backend or create_default_gui_backend()
-    result = {"title": title, "message": ""}
+    result: dict[str, object] = {"title": title, "message": ""}
 
     def _run() -> None:
         result["message"] = active_backend.focus_window(title)

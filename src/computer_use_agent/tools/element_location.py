@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -11,6 +10,8 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from PIL import Image
+from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
+from pydantic import BaseModel, ConfigDict, Field
 
 LocationSource = Literal["vision", "fallback"]
 
@@ -65,6 +66,44 @@ class NullElementLocatorBackend:
         return []
 
 
+class LocatorCandidatePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    point: list[int] = Field(default_factory=list, description="Candidate point as [x, y] in rendered image coordinates.")
+    confidence: float = Field(default=0.5, description="Confidence score between 0 and 1.")
+    reason: str = Field(default="vision candidate", description="Short reason for this candidate.")
+
+
+class LocatorResponsePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    candidates: list[LocatorCandidatePayload] = Field(
+        default_factory=list,
+        description="Candidate points sorted from highest confidence to lowest confidence.",
+    )
+
+
+UITARS_LOCATOR_SYSTEM_PROMPT = """
+You are a UI element locator for Windows screenshots.
+Use the provided screenshot image and user context to identify the requested UI element.
+Return only structured candidate points in rendered image coordinates.
+If no good candidate exists, return an empty candidates list.
+""".strip()
+
+UITARS_LOCATOR_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
+    [
+        ("system", UITARS_LOCATOR_SYSTEM_PROMPT),
+        MessagesPlaceholder("input_messages"),
+    ]
+)
+
+LOCATOR_MODEL_ALIASES: dict[str, str] = {
+    "uitars": "bytedance/ui-tars-1.5-7b",
+    "ui-tars": "bytedance/ui-tars-1.5-7b",
+    "ui_tars": "bytedance/ui-tars-1.5-7b",
+}
+
+
 class UITarsElementLocator:
     def __init__(
         self,
@@ -108,26 +147,27 @@ class UITarsElementLocator:
             screenshot_path,
             max_side=self.max_side,
         )
-        prompt = _build_uitars_locator_prompt(
-            query=query,
-            screenshot_id=screenshot_id,
-            rendered_size=rendered_size,
-            original_size=original_size,
-            max_candidates=self.max_candidates,
-        )
-        response = self.client.complete(
+        user_message = HumanMessagePromptTemplate.from_template(
             [
-                {"role": "system", "content": UITARS_LOCATOR_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
-                    ],
-                },
+                {"type": "text", "text": _locator_user_text_template()},
+                {"type": "image_url", "image_url": {"url": "{locator_image_url}", "detail": "high"}},
             ]
+        ).format(
+            query=query,
+            screenshot_id=screenshot_id or "<none>",
+            rendered_width=rendered_size[0],
+            rendered_height=rendered_size[1],
+            original_width=original_size[0],
+            original_height=original_size[1],
+            max_candidates=self.max_candidates,
+            locator_image_url=data_url,
         )
-        return _parse_uitars_locator_candidates(
+        messages = UITARS_LOCATOR_PROMPT_TEMPLATE.invoke({"input_messages": [user_message]}).to_messages()
+        response = self.client.invoke_structured(
+            messages,
+            schema=LocatorResponsePayload,
+        )
+        return _structured_locator_candidates(
             response,
             rendered_size=rendered_size,
             original_size=original_size,
@@ -261,21 +301,6 @@ def locate_element(
     )
 
 
-UITARS_LOCATOR_SYSTEM_PROMPT = """
-You are a UI element locator for Windows screenshots.
-Return JSON only.
-Locate the user-described UI element in the screenshot and return up to the requested number of candidate points.
-Coordinates must be integer pixels in the rendered image coordinate space described by the user.
-If no good candidate exists, return {"candidates": []}.
-""".strip()
-
-LOCATOR_MODEL_ALIASES: dict[str, str] = {
-    "uitars": "bytedance/ui-tars-1.5-7b",
-    "ui-tars": "bytedance/ui-tars-1.5-7b",
-    "ui_tars": "bytedance/ui-tars-1.5-7b",
-}
-
-
 def _normalize_locator_model_alias(*, config_path: Path, role: str) -> None:
     try:
         raw_config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -292,29 +317,18 @@ def _normalize_locator_model_alias(*, config_path: Path, role: str) -> None:
         config_path.write_text(json.dumps(raw_config, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _build_uitars_locator_prompt(
-    *,
-    query: str,
-    screenshot_id: str,
-    rendered_size: tuple[int, int],
-    original_size: tuple[int, int],
-    max_candidates: int,
-) -> str:
-    rendered_width, rendered_height = rendered_size
-    original_width, original_height = original_size
+def _locator_user_text_template() -> str:
     return (
-        "请在截图中定位用户描述的 Windows 界面元素，只输出一个 JSON 对象。\n"
-        "返回 schema："
-        '{"candidates": [{"point": [x, y], "confidence": 0.0, "reason": "..."}]}\n'
-        f"元素描述：{query}\n"
-        f"截图编号：{screenshot_id or '<none>'}\n"
-        f"你看到的图片尺寸（rendered image）是 {rendered_width}x{rendered_height}。\n"
-        f"原始截图尺寸（original image）是 {original_width}x{original_height}。\n"
+        "请在截图中定位用户描述的 Windows 界面元素。\n"
+        "元素描述：{query}\n"
+        "截图编号：{screenshot_id}\n"
+        "你看到的图片尺寸（rendered image）是 {rendered_width}x{rendered_height}。\n"
+        "原始截图尺寸（original image）是 {original_width}x{original_height}。\n"
         "要求：\n"
         "1. point 使用 rendered image 的整数像素坐标。\n"
         "2. 坐标格式必须是 [x, y]。\n"
-        f"3. 最多返回 {max_candidates} 个候选，按置信度从高到低排序。\n"
-        "4. 只返回 JSON，不要输出 Markdown 或解释。"
+        "3. 最多返回 {max_candidates} 个候选，按置信度从高到低排序。\n"
+        "4. 不要输出 Markdown 或额外解释，只返回结构化候选。"
     )
 
 
@@ -334,31 +348,20 @@ def _prepare_locator_image(path: Path, *, max_side: int) -> tuple[str, tuple[int
     )
 
 
-def _parse_uitars_locator_candidates(
-    raw_response: str,
+def _structured_locator_candidates(
+    payload: LocatorResponsePayload,
     *,
     rendered_size: tuple[int, int],
     original_size: tuple[int, int],
 ) -> list[ElementLocationCandidate]:
-    payload = _load_json_object(raw_response)
-    raw_candidates = payload.get("candidates")
-    if isinstance(raw_candidates, list):
-        candidates_payload = raw_candidates
-    else:
-        candidates_payload = [payload]
-
     candidates: list[ElementLocationCandidate] = []
-    for index, item in enumerate(candidates_payload):
-        if not isinstance(item, dict):
-            continue
-        point = _coerce_point(item.get("point"))
-        if point is None:
-            point = _coerce_point(item.get("bbox"))
+    for index, item in enumerate(payload.candidates):
+        point = _coerce_point(item.point)
         if point is None:
             continue
         scaled_point = _scale_point(point, rendered_size=rendered_size, original_size=original_size)
-        confidence = _coerce_confidence(item.get("confidence"), default=0.5)
-        reason = str(item.get("reason", "vision candidate")).strip() or "vision candidate"
+        confidence = _coerce_confidence(item.confidence, default=0.5)
+        reason = item.reason.strip() or "vision candidate"
         candidates.append(
             ElementLocationCandidate(
                 point=scaled_point,
@@ -374,29 +377,6 @@ def _parse_uitars_locator_candidates(
             )
         )
     return _deduplicate_candidates(candidates)
-
-
-def _load_json_object(raw_response: str) -> dict[str, Any]:
-    text = raw_response.strip()
-    try:
-        loaded = json.loads(text)
-    except json.JSONDecodeError:
-        loaded = json.loads(_extract_json_object(text))
-    if not isinstance(loaded, dict):
-        raise ValueError("locator response must be a JSON object")
-    return loaded
-
-
-def _extract_json_object(text: str) -> str:
-    code_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
-    if code_block_match:
-        return code_block_match.group(1)
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("locator response does not contain a JSON object")
-    return text[start : end + 1]
 
 
 def _coerce_point(value: object) -> tuple[int, int] | None:

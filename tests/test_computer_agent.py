@@ -1,8 +1,8 @@
-import json
 from pathlib import Path
 
 import pytest
 from PIL import Image
+from langchain_core.messages import AIMessage
 
 from computer_use_agent.runtime_state import create_runtime_state
 from computer_use_agent.computer_agent import (
@@ -12,22 +12,28 @@ from computer_use_agent.computer_agent import (
     OpenAICompatibleModelConfig,
     TERMINAL_AGENT_SYSTEM_PROMPT,
     TerminalAgentProtocolError,
-    parse_terminal_agent_decision,
+    parse_ai_message_decision,
+    resolve_langchain_tools,
     truncate_text,
 )
 
 
-def test_parse_terminal_agent_tool_call_json() -> None:
-    decision = parse_terminal_agent_decision(
-        json.dumps(
-            {
-                "kind": "tool_call",
-                "thought_summary": "查看文件",
-                "tool_name": "run_command",
-                "tool_args": {"command": "Get-ChildItem"},
-                "expected_observation": "文件列表",
-            },
-            ensure_ascii=False,
+def test_parse_ai_message_tool_call_decision() -> None:
+    decision = parse_ai_message_decision(
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "run_command",
+                    "args": {
+                        "thought_summary": "查看文件",
+                        "command": "Get-ChildItem",
+                        "expected_observation": "文件列表",
+                    },
+                    "id": "call_1",
+                    "type": "tool_call",
+                }
+            ],
         )
     )
 
@@ -35,18 +41,26 @@ def test_parse_terminal_agent_tool_call_json() -> None:
     assert decision.tool_name == "run_command"
     assert decision.tool_args == {"command": "Get-ChildItem"}
     assert decision.expected_observation == "文件列表"
+    assert decision.thought_summary == "查看文件"
 
 
-def test_parse_terminal_agent_finish_request_from_markdown_json_block() -> None:
-    decision = parse_terminal_agent_decision(
-        """```json
-        {
-          "kind": "finish_request",
-          "completion_claim": "任务已完成",
-          "supporting_evidence": ["command:cmd_0001"],
-          "remaining_uncertainty": ""
-        }
-        ```"""
+def test_parse_ai_message_finish_request_decision() -> None:
+    decision = parse_ai_message_decision(
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "finish_request",
+                    "args": {
+                        "completion_claim": "任务已完成",
+                        "supporting_evidence": ["command:cmd_0001"],
+                        "remaining_uncertainty": "",
+                    },
+                    "id": "call_1",
+                    "type": "tool_call",
+                }
+            ],
+        )
     )
 
     assert decision.kind == "finish_request"
@@ -54,9 +68,27 @@ def test_parse_terminal_agent_finish_request_from_markdown_json_block() -> None:
     assert decision.supporting_evidence == ["command:cmd_0001"]
 
 
-def test_parse_terminal_agent_rejects_unknown_kind() -> None:
+def test_parse_ai_message_rejects_missing_tool_calls() -> None:
     with pytest.raises(TerminalAgentProtocolError):
-        parse_terminal_agent_decision('{"kind": "click", "tool_name": "click"}')
+        parse_ai_message_decision(AIMessage(content="done"))
+
+
+def test_parse_ai_message_rejects_multiple_tool_calls() -> None:
+    with pytest.raises(TerminalAgentProtocolError):
+        parse_ai_message_decision(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "run_command", "args": {"command": "pwd"}, "id": "1", "type": "tool_call"},
+                    {
+                        "name": "finish_request",
+                        "args": {"completion_claim": "done"},
+                        "id": "2",
+                        "type": "tool_call",
+                    },
+                ],
+            )
+        )
 
 
 def test_truncate_text_keeps_short_text_and_compacts_long_text() -> None:
@@ -69,18 +101,19 @@ def test_truncate_text_keeps_short_text_and_compacts_long_text() -> None:
     assert truncated != "a" * 200
 
 
-def test_computer_agent_prompt_mentions_new_gui_tools() -> None:
-    assert "double_click" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "right_click" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "move_mouse" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "hover" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "scroll" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "open_app" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "switch_app" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "focus_window" in COMPUTER_AGENT_SYSTEM_PROMPT
+def test_resolve_langchain_tools_adds_finish_request() -> None:
+    tools = resolve_langchain_tools(["run_command", "take_screenshot"])
+    names = [tool.name for tool in tools]
+
+    assert names == ["run_command", "take_screenshot", "finish_request"]
+
+
+def test_computer_agent_prompt_mentions_langchain_tool_calling_rules() -> None:
+    assert "LangChain 绑定给你的工具" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "finish_request" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "take_screenshot -> semantic target -> 单步动作 -> take_screenshot" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "Get-StartApps" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "记事本" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "double_click、right_click、move_mouse、hover、type_text、hotkey、scroll、drag、open_app、switch_app、focus_window" in TERMINAL_AGENT_SYSTEM_PROMPT
+    assert "terminal-only 模式下只会绑定 run_command 与 finish_request" in TERMINAL_AGENT_SYSTEM_PROMPT
 
 
 def test_llm_computer_agent_includes_selected_screenshots_as_image_content(tmp_path: Path) -> None:
@@ -112,10 +145,17 @@ def test_llm_computer_agent_includes_selected_screenshots_as_image_content(tmp_p
 
     messages = agent._build_messages(state=state, workspace=tmp_path, history=[])
 
-    content = messages[1]["content"]
+    content = messages[1].content
     assert isinstance(content, list)
-    assert content[0]["type"] == "text"
-    assert "一张或多张截图" in content[0]["text"]
-    image_parts = [part for part in content[1:] if part["type"] == "image_url"]
+    first_part = content[0]
+    assert isinstance(first_part, dict)
+    assert first_part["type"] == "text"
+    assert isinstance(first_part.get("text"), str)
+    assert "一张或多张截图" in first_part["text"]
+    image_parts = [part for part in content[1:] if isinstance(part, dict) and part.get("type") == "image_url"]
     assert len(image_parts) == 2
-    assert all(part["image_url"]["url"].startswith("data:image/jpeg;base64,") for part in image_parts)
+    assert all(
+        isinstance(part.get("image_url"), dict)
+        and str(part["image_url"].get("url", "")).startswith("data:image/jpeg;base64,")
+        for part in image_parts
+    )
