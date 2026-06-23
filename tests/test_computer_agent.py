@@ -111,6 +111,7 @@ def test_resolve_langchain_tools_adds_finish_request() -> None:
 def test_computer_agent_prompt_mentions_langchain_tool_calling_rules() -> None:
     assert "LangChain 绑定给你的工具" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "finish_request" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "优先使用 run_command 等命令工具完成任务" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "take_screenshot -> semantic target -> 单步动作 -> take_screenshot" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "Get-StartApps" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "terminal-only 模式下只会绑定 run_command 与 finish_request" in TERMINAL_AGENT_SYSTEM_PROMPT

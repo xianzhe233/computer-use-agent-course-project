@@ -315,6 +315,7 @@ class LLMComputerAgent:
                 "constraints": [
                     "可以使用终端与当前已绑定的 GUI 工具，但每轮必须且只能调用一个工具",
                     "任务完成时调用 finish_request，不要输出普通文本",
+                    "优先使用 run_command 等命令工具完成任务；只有在 GUI 操作明显更快、命令难以完成，或任务明确要求 GUI 交互时，才优先使用 GUI 工具",
                     "GUI 操作优先遵循 主动观察截图 -> 语义目标/单步动作 -> 再观察 的节奏",
                     "如果需要知道当前屏幕状态，主动调用 take_screenshot；如果需要回看历史证据，主动调用 view_screenshot",
                     "你主动采集或回看的截图会作为多模态图片直接附在下一轮消息中；不要只根据文件路径臆测屏幕状态",
@@ -367,13 +368,14 @@ COMPUTER_AGENT_SYSTEM_PROMPT = """
 4. 对除 finish_request 以外的每次工具调用，都填写 thought_summary 与 expected_observation。
 5. 视觉观察必须由你主动选择：需要看当前屏幕时调用 take_screenshot；需要回看历史截图时调用 view_screenshot。
 6. take_screenshot/view_screenshot 执行后的下一轮会把你选中的一张或多张截图作为图片内容附上；你必须直接观察这些图片内容。
-7. 命令成功不等于 GUI 状态正确；凡是窗口是否打开、弹窗是否出现、文本是否输入、保存是否完成等视觉状态，都要用截图确认，不能只看 exit_code。
-8. GUI 任务优先遵循 take_screenshot -> semantic target -> 单步动作 -> take_screenshot 的节奏；语义定位失败后不要盲点，应重新截图、等待或换策略。
-9. 对于 click、double_click、right_click、move_mouse、hover、type_text、scroll、drag 等需要坐标的 GUI 动作，优先填写 target_query / start_query / end_query，让运行时在内部自动定位；只有在坐标证据明确可靠时才直接填 x/y。
-10. 命令应短小、非交互、可在 PowerShell 中执行；避免破坏性命令、系统级修改、无限等待和需要人工输入的命令。
-11. GUI 动作应原子化；执行点击、输入、快捷键、拖拽后运行时会自动补截图证据。
-12. 任务完成前尽量用命令输出、截图、定位结果或 GUI 后截图作为证据。
-13. 打开应用时优先使用 open_app；如果你不确定 open_app.name 该填什么，先用 run_command 执行 Get-StartApps 查询本机开始菜单应用名称，再根据查询结果填写准确的应用名，不要盲猜英文名、可执行文件名或窗口标题。
+7. 优先使用 run_command 等命令工具完成任务；只有在 GUI 操作明显更快、命令难以完成，或任务明确要求 GUI 交互时，才优先使用 GUI 工具。
+8. 命令成功不等于 GUI 状态正确；凡是窗口是否打开、弹窗是否出现、文本是否输入、保存是否完成等视觉状态，都要用截图确认，不能只看 exit_code。
+9. GUI 任务优先遵循 take_screenshot -> semantic target -> 单步动作 -> take_screenshot 的节奏；语义定位失败后不要盲点，应重新截图、等待或换策略。
+10. 对于 click、double_click、right_click、move_mouse、hover、type_text、scroll、drag 等需要坐标的 GUI 动作，优先填写 target_query / start_query / end_query，让运行时在内部自动定位；只有在坐标证据明确可靠时才直接填 x/y。
+11. 命令应短小、非交互、可在 PowerShell 中执行；避免破坏性命令、系统级修改、无限等待和需要人工输入的命令。
+12. GUI 动作应原子化；执行点击、输入、快捷键、拖拽后运行时会自动补截图证据。
+13. 任务完成前尽量用命令输出、截图、定位结果或 GUI 后截图作为证据。
+14. 打开应用时优先使用 open_app；如果你不确定 open_app.name 该填什么，先用 run_command 执行 Get-StartApps 查询本机开始菜单应用名称，再根据查询结果填写准确的应用名，不要盲猜英文名、可执行文件名或窗口标题。
 """.strip()
 
 

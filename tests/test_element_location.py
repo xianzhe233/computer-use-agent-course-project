@@ -5,7 +5,6 @@ from langchain_core.messages import HumanMessage
 
 from computer_use_agent.tools.element_location import (
     ElementLocationCandidate,
-    LocatorCandidatePayload,
     LocatorResponsePayload,
     UITarsElementLocator,
     locate_element,
@@ -141,25 +140,15 @@ def test_locate_element_returns_backend_failure(tmp_path: Path) -> None:
 def test_uitars_locator_uses_langchain_messages_and_structured_output(tmp_path: Path) -> None:
     screenshot_path = tmp_path / "locator.png"
     Image.new("RGB", (400, 200), "white").save(screenshot_path)
-    client = FakeStructuredClient(
-        LocatorResponsePayload(
-            candidates=[
-                LocatorCandidatePayload(
-                    point=[100, 50],
-                    confidence=0.92,
-                    reason="matched search box",
-                )
-            ]
-        )
-    )
-    locator = UITarsElementLocator(client=client, max_side=400, max_candidates=3)
+    client = FakeStructuredClient(LocatorResponsePayload(point=[100, 50]))
+    locator = UITarsElementLocator(client=client, max_side=400)
 
     candidates = locator.locate(query="搜索框", screenshot_path=screenshot_path, screenshot_id="ss_0099")
 
     assert len(candidates) == 1
     assert candidates[0].point == (100, 50)
-    assert candidates[0].confidence == 0.92
-    assert candidates[0].reason == "matched search box"
+    assert candidates[0].confidence == 1.0
+    assert candidates[0].reason == "locator point"
     assert len(client.calls) == 1
     messages = client.calls[0]
     assert len(messages) == 2

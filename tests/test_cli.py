@@ -5,7 +5,7 @@ def test_cli_defaults_to_autonomous_hybrid_mode() -> None:
     args = build_parser().parse_args(["列出当前目录文件"])
 
     assert args.mode == "autonomous"
-    assert args.max_steps == 20
+    assert args.max_steps == 50
     assert args.step_timeout == 180
 
 

@@ -89,7 +89,7 @@ class AutonomousComputerRuntime:
         gui_backend: GuiAutomationBackend | None = None,
         element_locator_backend: ElementLocatorBackend | None = None,
         agent: AutonomousComputerAgent | None = None,
-        max_steps: int = 20,
+        max_steps: int = 50,
         step_timeout_seconds: int = 180,
         max_consecutive_failures: int = 4,
         model_config_path: Path = Path("config/models.local.json"),

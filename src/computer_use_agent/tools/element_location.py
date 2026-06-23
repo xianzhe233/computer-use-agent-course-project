@@ -66,28 +66,21 @@ class NullElementLocatorBackend:
         return []
 
 
-class LocatorCandidatePayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    point: list[int] = Field(default_factory=list, description="Candidate point as [x, y] in rendered image coordinates.")
-    confidence: float = Field(default=0.5, description="Confidence score between 0 and 1.")
-    reason: str = Field(default="vision candidate", description="Short reason for this candidate.")
-
-
 class LocatorResponsePayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    candidates: list[LocatorCandidatePayload] = Field(
+    point: list[int] = Field(
         default_factory=list,
-        description="Candidate points sorted from highest confidence to lowest confidence.",
+        description="Single point as [x, y] in rendered image coordinates. Return an empty list if no match exists.",
     )
 
 
 UITARS_LOCATOR_SYSTEM_PROMPT = """
 You are a UI element locator for Windows screenshots.
 Use the provided screenshot image and user context to identify the requested UI element.
-Return only structured candidate points in rendered image coordinates.
-If no good candidate exists, return an empty candidates list.
+Return only one structured point in rendered image coordinates.
+Do not output any explanation text.
+If no good match exists, return an empty point list.
 """.strip()
 
 UITARS_LOCATOR_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
@@ -110,11 +103,9 @@ class UITarsElementLocator:
         *,
         client: Any,
         max_side: int = 1344,
-        max_candidates: int = 5,
     ) -> None:
         self.client = client
         self.max_side = max_side
-        self.max_candidates = max_candidates
 
     @classmethod
     def from_config_file(
@@ -124,7 +115,6 @@ class UITarsElementLocator:
         role: str = "locator",
         timeout_s: int = 60,
         max_side: int = 1344,
-        max_candidates: int = 5,
     ) -> UITarsElementLocator:
         from computer_use_agent.computer_agent import OpenAICompatibleChatClient
 
@@ -134,7 +124,7 @@ class UITarsElementLocator:
             role=role,
             timeout_s=timeout_s,
         )
-        return cls(client=client, max_side=max_side, max_candidates=max_candidates)
+        return cls(client=client, max_side=max_side)
 
     def locate(
         self,
@@ -159,7 +149,6 @@ class UITarsElementLocator:
             rendered_height=rendered_size[1],
             original_width=original_size[0],
             original_height=original_size[1],
-            max_candidates=self.max_candidates,
             locator_image_url=data_url,
         )
         messages = UITARS_LOCATOR_PROMPT_TEMPLATE.invoke({"input_messages": [user_message]}).to_messages()
@@ -327,8 +316,8 @@ def _locator_user_text_template() -> str:
         "要求：\n"
         "1. point 使用 rendered image 的整数像素坐标。\n"
         "2. 坐标格式必须是 [x, y]。\n"
-        "3. 最多返回 {max_candidates} 个候选，按置信度从高到低排序。\n"
-        "4. 不要输出 Markdown 或额外解释，只返回结构化候选。"
+        "3. 只返回一个 point 字段，格式必须是 [x, y]。\n"
+        "4. 不要输出 Markdown、说明文字、置信度、reason 或其他额外字段。"
     )
 
 
@@ -354,29 +343,23 @@ def _structured_locator_candidates(
     rendered_size: tuple[int, int],
     original_size: tuple[int, int],
 ) -> list[ElementLocationCandidate]:
-    candidates: list[ElementLocationCandidate] = []
-    for index, item in enumerate(payload.candidates):
-        point = _coerce_point(item.point)
-        if point is None:
-            continue
-        scaled_point = _scale_point(point, rendered_size=rendered_size, original_size=original_size)
-        confidence = _coerce_confidence(item.confidence, default=0.5)
-        reason = item.reason.strip() or "vision candidate"
-        candidates.append(
-            ElementLocationCandidate(
-                point=scaled_point,
-                confidence=confidence,
-                source="vision",
-                reason=reason,
-                metadata={
-                    "candidate_index": index,
-                    "rendered_point": list(point),
-                    "rendered_size": {"width": rendered_size[0], "height": rendered_size[1]},
-                    "original_size": {"width": original_size[0], "height": original_size[1]},
-                },
-            )
+    point = _coerce_point(payload.point)
+    if point is None:
+        return []
+    scaled_point = _scale_point(point, rendered_size=rendered_size, original_size=original_size)
+    return [
+        ElementLocationCandidate(
+            point=scaled_point,
+            confidence=1.0,
+            source="vision",
+            reason="locator point",
+            metadata={
+                "rendered_point": list(point),
+                "rendered_size": {"width": rendered_size[0], "height": rendered_size[1]},
+                "original_size": {"width": original_size[0], "height": original_size[1]},
+            },
         )
-    return _deduplicate_candidates(candidates)
+    ]
 
 
 def _coerce_point(value: object) -> tuple[int, int] | None:

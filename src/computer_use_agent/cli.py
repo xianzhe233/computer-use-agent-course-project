@@ -33,8 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-steps",
         type=int,
-        default=20,
-        help="最大自主执行步数，默认 20",
+        default=50,
+        help="最大自主执行步数，默认 50",
     )
     parser.add_argument(
         "--step-timeout",
