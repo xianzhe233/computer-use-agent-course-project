@@ -25,6 +25,30 @@ uv run python -m computer_use_agent.cli "打开记事本并输入一行文字"
 
 当前内置 GUI demo 会执行：截图 -> 启动记事本 -> 显式等待 -> 输入 demo 文本 -> 再次截图。
 
+## Chainlit 前端
+
+安装依赖：
+
+```bash
+uv sync
+```
+
+启动前端：
+
+```bash
+uv run chainlit run src/computer_use_agent/ui_chainlit.py
+```
+
+如果不是通过 uv 管理环境，也可以在安装依赖后运行：
+
+```bash
+chainlit run src/computer_use_agent/ui_chainlit.py
+```
+
+打开浏览器中的本地地址后，输入任务即可启动 agent。运行结束后，页面会展示本次 run 的 summary、trace、命令日志、examiner 检查和截图。
+
+试用前端时不建议加 `-w/--watch`，因为 agent 运行时会持续写入 `runs/`，监听模式可能触发 Chainlit reload，干扰长任务执行。
+
 ## 实际 smoke 测试每个工具
 
 ```bash
