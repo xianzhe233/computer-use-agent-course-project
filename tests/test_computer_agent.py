@@ -1,5 +1,6 @@
 import base64
 import io
+from typing import Any
 from pathlib import Path
 
 import pytest
@@ -108,6 +109,28 @@ def test_resolve_langchain_tools_adds_finish_request() -> None:
     names = [tool.name for tool in tools]
 
     assert names == ["run_command", "take_screenshot", "finish_request"]
+
+
+def test_langchain_tool_descriptions_guide_optional_parameters() -> None:
+    tools = {tool.name: tool for tool in resolve_langchain_tools(["view_screenshot", "click", "type_text", "open_app"])}
+
+    assert "screenshot_ids" in tools["view_screenshot"].description
+    assert "target_query" in tools["click"].description
+    assert "Get-StartApps" in tools["open_app"].description
+    assert "completion evidence" in tools["finish_request"].description
+
+    click_fields = _tool_model_fields(tools["click"])
+    assert "visible text/control type" in click_fields["target_query"].description
+    assert "Use 1 for buttons" in click_fields["clicks"].description
+
+    type_text_fields = _tool_model_fields(tools["type_text"])
+    assert "Set true for replacing" in type_text_fields["clear"].description
+    assert "searches, chat submission" in type_text_fields["press_enter"].description
+
+
+def _tool_model_fields(tool: Any) -> dict[str, Any]:
+    assert tool.args_schema is not None
+    return tool.args_schema.model_fields
 
 
 def test_computer_agent_prompt_mentions_langchain_tool_calling_rules() -> None:
