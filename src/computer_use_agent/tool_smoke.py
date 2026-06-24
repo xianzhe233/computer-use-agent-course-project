@@ -9,12 +9,29 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from .tools import click, drag, hotkey, run_command, take_screenshot, type_text, wait
+from .tools import (
+    click,
+    double_click,
+    drag,
+    focus_window,
+    hotkey,
+    hover,
+    move_mouse,
+    open_app,
+    right_click,
+    run_command,
+    scroll,
+    switch_app,
+    take_screenshot,
+    type_text,
+    view_screenshot,
+    wait,
+)
 
 NOTEPAD_EXE = '"$env:WINDIR\\System32\\notepad.exe"'
-NOTEPAD_START_FOR_PID = (
-    f"Start-Process -FilePath {NOTEPAD_EXE} -PassThru | Select-Object -ExpandProperty Id"
-)
+NOTEPAD_START_FOR_PID = f"Start-Process -FilePath {NOTEPAD_EXE} -PassThru | Select-Object -ExpandProperty Id"
+
+# ── data types ──────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,14 +93,17 @@ class SmokeRecorder:
         return path
 
 
+# ── CLI ─────────────────────────────────────────────────────────────────────
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Actually smoke-test computer-use-agent tools. GUI mode opens Notepad and performs real mouse/keyboard actions.",
+        description="Smoke-test every computer-use-agent tool. GUI mode opens Notepad + Calculator.",
     )
     parser.add_argument("--runs-root", default="runs", help="Root directory for smoke reports.")
     parser.add_argument("--yes", action="store_true", help="Skip the interactive safety confirmation.")
     parser.add_argument("--no-gui", action="store_true", help="Only test non-GUI tools.")
-    parser.add_argument("--keep-open", action="store_true", help="Keep the Notepad process open after GUI smoke test.")
+    parser.add_argument("--keep-open", action="store_true", help="Keep Notepad open after GUI smoke test.")
     parser.add_argument("--wait-seconds", type=int, default=1, help="Seconds for the wait tool smoke test.")
     parser.add_argument(
         "--text",
@@ -118,9 +138,15 @@ def main() -> int:
     return 0 if all(record["success"] for record in recorder.records) else 1
 
 
+# ── non-GUI smoke ───────────────────────────────────────────────────────────
+
+
 def _run_non_gui_smoke(*, recorder: SmokeRecorder, wait_seconds: int) -> None:
+    # 1. run_command
     recorder.record("run_command.get_date", run_command("Get-Date"))
+    # 2. wait
     recorder.record("wait", wait(wait_seconds))
+    # 3. take_screenshot
     recorder.record(
         "take_screenshot.before_gui",
         take_screenshot(
@@ -130,38 +156,99 @@ def _run_non_gui_smoke(*, recorder: SmokeRecorder, wait_seconds: int) -> None:
             source_action_id="tool_smoke_non_gui",
         ),
     )
+    # 4. view_screenshot (validate metadata, no pixel data loaded)
+    recorder.record(
+        "view_screenshot.before_gui",
+        view_screenshot(["smoke_before_gui"], screenshots_dir=recorder.root),
+    )
+
+
+# ── GUI smoke ───────────────────────────────────────────────────────────────
 
 
 def _run_gui_smoke(*, recorder: SmokeRecorder, text: str, keep_open: bool) -> None:
-    pid: int | None = None
+    notepad_pid: int | None = None
+
     try:
+        # ── launch Notepad ──
         start_result = run_command(NOTEPAD_START_FOR_PID)
         recorder.record("run_command.open_notepad", start_result)
-        pid = parse_first_int(start_result.stdout or start_result.stderr)
+        notepad_pid = parse_first_int(start_result.stdout or start_result.stderr)
 
         recorder.record("wait.notepad_launch", wait(2))
-        rect = _find_window_rect(pid=pid)
+        rect = _find_window_rect(pid=notepad_pid)
         points = points_from_rect(rect.left, rect.top, rect.right, rect.bottom)
         rect_payload = {
-            "pid": pid,
-            "rect": {
-                "left": rect.left,
-                "top": rect.top,
-                "right": rect.right,
-                "bottom": rect.bottom,
-            },
+            "pid": notepad_pid,
+            "rect": {"left": rect.left, "top": rect.top, "right": rect.right, "bottom": rect.bottom},
             "points": asdict(points),
         }
 
+        # ── 5. click ──
         recorder.record("click.notepad_body", click(points.click_x, points.click_y), rect_payload)
-        recorder.record("type_text.initial", type_text(text + "\n"), rect_payload)
+
+        # ── 6. type_text (multi-line for scroll testing) ──
+        multi_line = "\n".join(f"line {i:02d}: {text}" for i in range(1, 21))
+        recorder.record("type_text.initial", type_text(multi_line), rect_payload)
+
+        # ── 7. double_click (select a word) ──
+        word_x = points.click_x + 100
+        word_y = points.click_y - 20
+        recorder.record("double_click.select_word", double_click(word_x, word_y), rect_payload)
+
+        # ── 8. right_click (context menu) ──
+        recorder.record("right_click.context_menu", right_click(points.click_x, points.click_y), rect_payload)
+        recorder.record("wait.after_right_click", wait(1))
+        # dismiss context menu
+        recorder.record("hotkey.escape_context_menu", hotkey("escape"), rect_payload)
+
+        # ── 9. move_mouse ──
+        move_x = points.click_x + 150
+        move_y = points.click_y + 50
+        recorder.record("move_mouse.to_position", move_mouse(move_x, move_y), rect_payload)
+
+        # ── 10. hover ──
+        recorder.record(
+            "hover.at_position",
+            hover(points.click_x, points.click_y, duration_ms=500),
+            rect_payload,
+        )
+
+        # ── 11. scroll (down then up) ──
+        recorder.record("scroll.down", scroll(direction="down", amount=3), rect_payload)
+        recorder.record("wait.after_scroll", wait(1))
+        recorder.record("scroll.up", scroll(direction="up", amount=3), rect_payload)
+
+        # ── 12. hotkey (Ctrl+A) ──
         recorder.record("hotkey.select_all", hotkey("ctrl+a"), rect_payload)
-        recorder.record("type_text.replace", type_text(text + " - replace path ok\n"), rect_payload)
+
+        # ── 13. drag ──
         recorder.record(
             "drag.notepad_body",
             drag(points.drag_start_x, points.drag_start_y, points.drag_end_x, points.drag_end_y),
             rect_payload,
         )
+
+        # ── 14. open_app (Calculator) ──
+        # The local Start Menu name; "计算器" on Chinese Windows, "Calculator" on English.
+        for calc_name in ("计算器", "Calculator"):
+            try:
+                recorder.record(f"open_app.{calc_name}", open_app(calc_name))
+                break
+            except Exception:
+                continue
+        else:
+            recorder.record_error("open_app.calculator", RuntimeError("Calculator not found in Start Menu"))
+        recorder.record("wait.calculator_launch", wait(2))
+
+        # ── 15. switch_app (back to Notepad) ──
+        recorder.record("switch_app.notepad", switch_app("Notepad"), rect_payload)
+        recorder.record("wait.after_switch", wait(1))
+
+        # ── 16. focus_window ──
+        recorder.record("focus_window.notepad", focus_window("Notepad"), rect_payload)
+
+        # ── 17. take_screenshot (after all GUI ops) ──
         recorder.record(
             "take_screenshot.after_gui",
             take_screenshot(
@@ -172,11 +259,24 @@ def _run_gui_smoke(*, recorder: SmokeRecorder, text: str, keep_open: bool) -> No
             ),
             rect_payload,
         )
+
+        # ── 18. view_screenshot (after GUI) ──
+        recorder.record(
+            "view_screenshot.after_gui",
+            view_screenshot(["smoke_after_gui"], screenshots_dir=recorder.root),
+        )
+
     except Exception as exc:
-        recorder.record_error("gui_smoke", exc, {"pid": pid})
+        recorder.record_error("gui_smoke", exc, {"notepad_pid": notepad_pid})
     finally:
-        if pid is not None and not keep_open:
-            recorder.record("run_command.cleanup_notepad", run_command(f"Stop-Process -Id {pid} -Force"))
+        # cleanup Calculator (by process name, no PID needed)
+        _safe_stop_process(recorder, "Calculator")
+        # cleanup Notepad
+        if notepad_pid is not None and not keep_open:
+            recorder.record("run_command.cleanup_notepad", run_command(f"Stop-Process -Id {notepad_pid} -Force"))
+
+
+# ── helpers ─────────────────────────────────────────────────────────────────
 
 
 def parse_first_int(text: str) -> int | None:
@@ -207,14 +307,14 @@ def _clamp(value: int, lower: int, upper: int) -> int:
 
 
 def _find_window_rect(*, pid: int | None):
-    from computer_use_agent._vendor.windows_use import uia
+    from computer_use_agent.tools._uia import WindowControl
 
     if pid is not None:
-        window = uia.WindowControl(ProcessId=pid)
+        window = WindowControl(ProcessId=pid)
         if window.Exists(maxSearchSeconds=8):
             return window.BoundingRectangle
 
-    window = uia.WindowControl(RegexName="(?i).*notepad.*")
+    window = WindowControl(RegexName="(?i).*notepad.*")
     if window.Exists(maxSearchSeconds=8):
         return window.BoundingRectangle
 
@@ -223,8 +323,9 @@ def _find_window_rect(*, pid: int | None):
 
 def _confirm_gui_smoke() -> bool:
     print(
-        "This will open Notepad, take screenshots, click, type text, press Ctrl+A, drag the mouse, "
-        "and then force-close the Notepad process."
+        "This will open Notepad and Calculator, take screenshots, perform clicks, typing, "
+        "double-click, right-click, mouse moves, hover, scroll, hotkeys, drag, app open/switch/focus, "
+        "and then force-close both processes."
     )
     print("Save any active work and avoid showing sensitive windows before continuing.")
     answer = input("Continue? [y/N] ").strip().lower()
@@ -242,6 +343,18 @@ def _to_payload(result: object) -> dict[str, Any]:
 def _payload_success(payload: dict[str, Any]) -> bool:
     value = payload.get("success")
     return bool(value) if isinstance(value, bool) else False
+
+
+def _safe_stop_process(recorder: SmokeRecorder, process_name: str) -> None:
+    """Try to stop a process by name pattern; ignore errors if already closed."""
+    try:
+        result = run_command(
+            f"Get-Process -Name '*{process_name}*' -ErrorAction SilentlyContinue | "
+            f"Stop-Process -Force -ErrorAction SilentlyContinue"
+        )
+        recorder.record(f"run_command.cleanup_{process_name.lower()}", result)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

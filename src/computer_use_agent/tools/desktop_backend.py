@@ -13,16 +13,20 @@ from typing import Literal
 from fuzzywuzzy import process
 from PIL import Image
 
-from computer_use_agent._vendor.windows_use import uia
-from computer_use_agent.tools.screenshot import capture_screen_image
-from computer_use_agent._vendor.windows_use.desktop.config import KEY_ALIASES
-from computer_use_agent._vendor.windows_use.desktop.utils import escape_text_for_sendkeys
+from . import _uia
+from ._uia_config import KEY_ALIASES
+from ._uia_utils import escape_text_for_sendkeys
+from .screenshot import capture_screen_image
 
 
-class WindowsUseDesktopBackend:
+class DesktopBackend:
+    """Windows GUI / command / screenshot backend built on our vendored UIA library."""
+
     def __init__(self) -> None:
         self._last_app_name = ""
         self._last_appid = ""
+
+    # -- command ----------------------------------------------------------------
 
     def execute_command(
         self,
@@ -47,22 +51,16 @@ class WindowsUseDesktopBackend:
         except Exception as e:
             return (f"Command execution failed: {type(e).__name__}: {e}", 1)
 
+    # -- app / window -----------------------------------------------------------
+
     def get_apps_from_start_menu(self) -> dict[str, str]:
         command = "Get-StartApps | ConvertTo-Csv -NoTypeInformation"
         apps_info, status = self.execute_command(command)
-
         if status != 0 or not apps_info:
             return {}
-
         try:
             reader = csv.DictReader(io.StringIO(apps_info.strip()))
-            apps_map: dict[str, str] = {}
-            for row in reader:
-                name = row.get("Name")
-                appid = row.get("AppID")
-                if name and appid:
-                    apps_map[name.lower()] = appid
-            return apps_map
+            return {name.lower(): appid for row in reader if (name := row.get("Name")) and (appid := row.get("AppID"))}
         except Exception:
             return {}
 
@@ -88,7 +86,6 @@ class WindowsUseDesktopBackend:
         else:
             command = f'Start-Process "shell:AppsFolder\\{appid}"'
             response, status = self.execute_command(command)
-
         return response, status, pid
 
     def open_app(self, name: str) -> str:
@@ -100,14 +97,13 @@ class WindowsUseDesktopBackend:
         target_window = None
         try:
             if pid > 0:
-                target_window = uia.WindowControl(ProcessId=pid)
+                target_window = _uia.WindowControl(ProcessId=pid)
                 if target_window.Exists(maxSearchSeconds=10):
                     launched = True
-
             if not launched:
                 for candidate in self._window_name_candidates(name):
                     safe_name = re.escape(candidate)
-                    target_window = uia.WindowControl(RegexName=f"(?i).*{safe_name}.*")
+                    target_window = _uia.WindowControl(RegexName=f"(?i).*{safe_name}.*")
                     if target_window.Exists(maxSearchSeconds=2):
                         launched = True
                         break
@@ -120,7 +116,7 @@ class WindowsUseDesktopBackend:
             except Exception:
                 try:
                     rect = target_window.BoundingRectangle
-                    uia.Click(rect.left + 200, rect.top + 200)
+                    _uia.Click(rect.left + 200, rect.top + 200)
                 except Exception:
                     pass
             return f"{name.title()} launched."
@@ -144,6 +140,8 @@ class WindowsUseDesktopBackend:
         resolved_title = self._window_title(target_window) or title
         return f"Focused window {resolved_title}."
 
+    # -- screenshot -------------------------------------------------------------
+
     def get_screenshot(self, as_bytes: bool = False) -> bytes | Image.Image:
         screenshot = capture_screen_image()
         if as_bytes:
@@ -158,30 +156,40 @@ class WindowsUseDesktopBackend:
         if target != "screen":
             raise ValueError(f"Unsupported screenshot target: {target}")
         screenshot = self.get_screenshot()
-        image = (
-            screenshot if isinstance(screenshot, Image.Image) else Image.open(io.BytesIO(screenshot))
-        )
+        image = screenshot if isinstance(screenshot, Image.Image) else Image.open(io.BytesIO(screenshot))
         image.save(path, format="PNG")
         return image.size
 
+    # -- mouse ------------------------------------------------------------------
+
     def click(self, x: int, y: int, *, button: str = "left", clicks: int = 1) -> None:
         if clicks == 0:
-            uia.SetCursorPos(x, y)
+            _uia.SetCursorPos(x, y)
             return
         match button:
             case "left":
                 if clicks >= 2:
-                    uia.DoubleClick(x, y)
+                    _uia.DoubleClick(x, y)
                 else:
-                    uia.Click(x, y)
+                    _uia.Click(x, y)
             case "right":
                 for _ in range(clicks):
-                    uia.RightClick(x, y)
+                    _uia.RightClick(x, y)
             case "middle":
                 for _ in range(clicks):
-                    uia.MiddleClick(x, y)
+                    _uia.MiddleClick(x, y)
             case _:
                 raise ValueError(f"Unsupported mouse button: {button}")
+
+    def move(self, x: int, y: int) -> None:
+        _uia.MoveTo(x, y, moveSpeed=10)
+
+    def drag(self, x1: int, y1: int, x2: int, y2: int) -> None:
+        self.move(x1, y1)
+        cx, cy = _uia.GetCursorPos()
+        _uia.DragTo(cx, cy, x2, y2)
+
+    # -- keyboard ---------------------------------------------------------------
 
     def type_text(
         self,
@@ -194,26 +202,37 @@ class WindowsUseDesktopBackend:
         press_enter: bool = False,
     ) -> None:
         if x is not None and y is not None:
-            uia.Click(x, y)
+            _uia.Click(x, y)
         if caret_position == "start":
-            uia.SendKeys("{Home}", waitTime=0.05)
+            _uia.SendKeys("{Home}", waitTime=0.05)
         elif caret_position == "end":
-            uia.SendKeys("{End}", waitTime=0.05)
+            _uia.SendKeys("{End}", waitTime=0.05)
         if clear:
             sleep(0.5)
-            uia.SendKeys("{Ctrl}a", waitTime=0.05)
-            uia.SendKeys("{Back}", waitTime=0.05)
+            _uia.SendKeys("{Ctrl}a", waitTime=0.05)
+            _uia.SendKeys("{Back}", waitTime=0.05)
         if self._should_use_clipboard_paste(text):
             self._set_clipboard_text(text)
             self.hotkey("ctrl+v")
         else:
             escaped_text = escape_text_for_sendkeys(text)
-            uia.SendKeys(escaped_text, interval=0.01, waitTime=0.05)
+            _uia.SendKeys(escaped_text, interval=0.01, waitTime=0.05)
         if press_enter:
-            uia.SendKeys("{Enter}", waitTime=0.05)
+            _uia.SendKeys("{Enter}", waitTime=0.05)
 
-    def move(self, x: int, y: int) -> None:
-        uia.MoveTo(x, y, moveSpeed=10)
+    def hotkey(self, shortcut: str) -> None:
+        keys = shortcut.split("+")
+        sendkeys_str = ""
+        for key in keys:
+            key = key.strip()
+            if len(key) == 1:
+                sendkeys_str += key
+            else:
+                name = KEY_ALIASES.get(key.lower(), key)
+                sendkeys_str += "{" + name + "}"
+        _uia.SendKeys(sendkeys_str, interval=0.01)
+
+    # -- scroll -----------------------------------------------------------------
 
     def scroll(
         self,
@@ -232,43 +251,28 @@ class WindowsUseDesktopBackend:
             case "vertical":
                 match direction:
                     case "up":
-                        uia.WheelUp(amount)
+                        _uia.WheelUp(amount)
                     case "down":
-                        uia.WheelDown(amount)
+                        _uia.WheelDown(amount)
                     case _:
                         raise ValueError('Invalid direction. Use "up" or "down" for vertical scroll.')
             case "horizontal":
                 match direction:
                     case "left":
-                        uia.WheelLeft(amount)
+                        _uia.WheelLeft(amount)
                     case "right":
-                        uia.WheelRight(amount)
+                        _uia.WheelRight(amount)
                     case _:
                         raise ValueError('Invalid direction. Use "left" or "right" for horizontal scroll.')
             case _:
                 raise ValueError('Invalid axis. Use "horizontal" or "vertical".')
 
-    def drag(self, x1: int, y1: int, x2: int, y2: int) -> None:
-        self.move(x1, y1)
-        cx, cy = uia.GetCursorPos()
-        uia.DragTo(cx, cy, x2, y2)
-
-    def hotkey(self, shortcut: str) -> None:
-        keys = shortcut.split("+")
-        sendkeys_str = ""
-        for key in keys:
-            key = key.strip()
-            if len(key) == 1:
-                sendkeys_str += key
-            else:
-                name = KEY_ALIASES.get(key.lower(), key)
-                sendkeys_str += "{" + name + "}"
-        uia.SendKeys(sendkeys_str, interval=0.01)
+    # -- helpers ----------------------------------------------------------------
 
     def _find_window_by_name(self, name: str):
         for candidate in self._window_name_candidates(name):
             safe_name = re.escape(candidate)
-            target_window = uia.WindowControl(RegexName=f"(?i).*{safe_name}.*")
+            target_window = _uia.WindowControl(RegexName=f"(?i).*{safe_name}.*")
             if target_window.Exists(maxSearchSeconds=2):
                 return target_window
         return None

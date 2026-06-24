@@ -47,10 +47,10 @@ class ImageGrabBackend:
 
 def create_default_screenshot_backend() -> ScreenshotBackend:
     try:
-        from .windows_use_desktop import WindowsUseDesktopBackend
+        from .desktop_backend import DesktopBackend
     except Exception:
         return ImageGrabBackend()
-    return WindowsUseDesktopBackend()
+    return DesktopBackend()
 
 
 def take_screenshot(

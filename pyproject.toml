@@ -37,16 +37,16 @@ testpaths = ["tests"]
 line-length = 100
 target-version = "py313"
 exclude = [
-  "src/computer_use_agent/_vendor",
+  "src/computer_use_agent/tools/_uia",
 ]
 
 [tool.mypy]
 python_version = "3.13"
 files = ["src", "tests"]
-exclude = "(^|[\\/])src[\\/]computer_use_agent[\\/]_vendor([\\/]|$)"
+exclude = "(^|[\\/])src[\\/]computer_use_agent[\\/]tools[\\/]_uia([\\/]|$)"
 ignore_missing_imports = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["computer_use_agent._vendor.*"]
+module = ["computer_use_agent.tools._uia.*"]
 ignore_errors = true

@@ -130,13 +130,19 @@ class PyAutoGuiBackend:
         self._pyautogui.hscroll(delta)
 
     def open_app(self, name: str) -> str:
-        raise RuntimeError(f"open_app requires WindowsUseDesktopBackend: {name}")
+        from .desktop_backend import DesktopBackend
+
+        return DesktopBackend().open_app(name)
 
     def switch_app(self, name: str) -> str:
-        raise RuntimeError(f"switch_app requires WindowsUseDesktopBackend: {name}")
+        from .desktop_backend import DesktopBackend
+
+        return DesktopBackend().switch_app(name)
 
     def focus_window(self, title: str) -> str:
-        raise RuntimeError(f"focus_window requires WindowsUseDesktopBackend: {title}")
+        from .desktop_backend import DesktopBackend
+
+        return DesktopBackend().focus_window(title)
 
 
 def normalize_shortcut(shortcut: str) -> tuple[str, ...]:
@@ -174,10 +180,10 @@ def _wrap_gui_action(
 
 def create_default_gui_backend() -> GuiAutomationBackend:
     try:
-        from .windows_use_desktop import WindowsUseDesktopBackend
+        from .desktop_backend import DesktopBackend
     except Exception:
         return PyAutoGuiBackend()
-    return WindowsUseDesktopBackend()
+    return DesktopBackend()
 
 
 def click(

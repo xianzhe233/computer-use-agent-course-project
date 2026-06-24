@@ -35,6 +35,7 @@ from .screenshot import (
     create_default_screenshot_backend,
     take_screenshot,
 )
+from .view_screenshot import ViewScreenshotResult, view_screenshot
 from .wait import WaitResult, wait
 
 __all__ = [
@@ -72,6 +73,8 @@ __all__ = [
     "take_screenshot",
     "type_text",
     "UITarsElementLocator",
+    "view_screenshot",
+    "ViewScreenshotResult",
     "wait",
     "WaitResult",
 ]

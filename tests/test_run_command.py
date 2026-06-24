@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest
@@ -10,15 +12,14 @@ from computer_use_agent.tools.run_command import (
 )
 
 
-class FakeBackend(PowerShellBackend):
-    def __init__(self, result: CommandResult) -> None:
-        super().__init__(executable="fake-powershell")
-        self.result = result
+class FakeBackend:
+    def __init__(self, canned: CommandResult) -> None:
+        self.canned = canned
         self.calls: list[tuple[str, int, Path | None]] = []
 
-    def execute(self, command: str, timeout: int = 10, cwd: Path | None = None) -> CommandResult:
+    def execute(self, command: str, timeout: int = 180, cwd: Path | None = None) -> CommandResult:
         self.calls.append((command, timeout, cwd))
-        return self.result
+        return self.canned
 
 
 class FakeWindowsUseDesktop:

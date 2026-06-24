@@ -174,10 +174,10 @@ def _decode_timeout_stream(stream: bytes | str | None) -> str:
 
 def _create_windows_use_command_backend() -> WindowsUseCommandBackend | None:
     try:
-        from .windows_use_desktop import WindowsUseDesktopBackend
+        from .desktop_backend import DesktopBackend
     except Exception:
         return None
-    return WindowsUseDesktopBackend()
+    return DesktopBackend()
 
 
 def run_command(

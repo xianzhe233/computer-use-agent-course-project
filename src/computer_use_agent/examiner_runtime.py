@@ -9,6 +9,7 @@ from .agent_common import truncate_text
 from .examiner_agent import ExaminerAction, ExaminerProtocol, LLMExaminerAgent
 from .run_store import RunStore, mark_run_finished
 from .runtime_state import RuntimeState, TerminalRunStatus
+from .tools import view_screenshot
 
 
 class RuntimeExaminerLoop:
@@ -229,18 +230,19 @@ class RuntimeExaminerLoop:
                 },
             }, []
 
-        selected_paths: list[str] = []
-        for screenshot_id in screenshot_ids:
-            screenshot_path = Path(state.run.root_dir) / "screenshots" / f"{screenshot_id}.png"
-            if not screenshot_path.exists():
-                return {
-                    "success": False,
-                    "error": {
-                        "code": "SCREENSHOT_NOT_FOUND",
-                        "message": f"Screenshot not found: {screenshot_path}",
-                    },
-                }, []
-            selected_paths.append(str(screenshot_path))
+        result = view_screenshot(
+            screenshot_ids=screenshot_ids,
+            screenshots_dir=Path(state.run.root_dir) / "screenshots",
+        )
+        if not result.success:
+            return {
+                "success": False,
+                "error": result.error or {"code": "SCREENSHOT_NOT_FOUND", "message": "screenshot not found"},
+            }, []
+
+        selected_paths: list[str] = [
+            str(item.get("path", "")) for item in result.screenshots if isinstance(item, dict) and item.get("path")
+        ]
 
         state.examiner.selected_screenshot_ids = screenshot_ids
         state.examiner.selected_screenshot_paths = selected_paths
@@ -259,19 +261,13 @@ class RuntimeExaminerLoop:
                 "remaining_questions": list(action.remaining_questions),
             }
         )
-        screenshots = [
-            {
-                "screenshot_id": screenshot_id,
-                "path": path,
-            }
-            for screenshot_id, path in zip(screenshot_ids, selected_paths, strict=False)
-        ]
+
         return {
             "success": True,
             "note": action.note or "selected screenshots for examiner review",
             "observed_findings": list(action.observed_findings),
             "remaining_questions": list(action.remaining_questions),
-            "screenshots": screenshots,
+            "screenshots": result.screenshots,
         }, [f"screenshot:{item}" for item in screenshot_ids]
 
     def _agent(self) -> ExaminerProtocol:

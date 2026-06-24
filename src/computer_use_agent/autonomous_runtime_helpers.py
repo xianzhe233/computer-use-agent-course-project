@@ -4,7 +4,6 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -31,6 +30,7 @@ from .tools import (
     PowerShellBackend,
     ScreenshotBackend,
     ScreenshotResult,
+    ViewScreenshotResult,
     click,
     create_default_element_locator_backend,
     double_click,
@@ -47,6 +47,7 @@ from .tools import (
     switch_app,
     take_screenshot,
     type_text,
+    view_screenshot,
     wait,
 )
 
@@ -636,58 +637,11 @@ class AutonomousComputerRuntimeHelpers:
         return screenshot_result
 
     def _view_screenshot_result(self, *, state: RuntimeState, screenshot_ids: list[str]) -> dict[str, Any]:
-        started_at = time.perf_counter()
-        viewed_at = datetime.now(UTC).isoformat()
-        normalized_ids = [screenshot_id.strip() for screenshot_id in screenshot_ids if screenshot_id.strip()]
-        if not normalized_ids:
-            return {
-                "tool_name": "view_screenshot",
-                "screenshot_ids": [],
-                "screenshots": [],
-                "success": False,
-                "duration_ms": int((time.perf_counter() - started_at) * 1000),
-                "timestamp": viewed_at,
-                "note": "screenshot_ids must not be empty",
-                "error": {"code": "INVALID_SCREENSHOT_ID", "message": "view_screenshot requires non-empty screenshot_ids"},
-            }
-
-        screenshots: list[dict[str, Any]] = []
-        for screenshot_id in normalized_ids:
-            screenshot_path = Path(state.run.root_dir) / "screenshots" / f"{screenshot_id}.png"
-            if not screenshot_path.exists():
-                return {
-                    "tool_name": "view_screenshot",
-                    "screenshot_ids": normalized_ids,
-                    "screenshots": screenshots,
-                    "success": False,
-                    "duration_ms": int((time.perf_counter() - started_at) * 1000),
-                    "timestamp": viewed_at,
-                    "note": "screenshot not found",
-                    "error": {
-                        "code": "SCREENSHOT_NOT_FOUND",
-                        "message": f"Screenshot not found: {screenshot_path}",
-                    },
-                }
-            width, height = _read_image_size(screenshot_path)
-            screenshots.append(
-                {
-                    "screenshot_id": screenshot_id,
-                    "path": str(screenshot_path),
-                    "width": width,
-                    "height": height,
-                }
-            )
-
-        return {
-            "tool_name": "view_screenshot",
-            "screenshot_ids": normalized_ids,
-            "screenshots": screenshots,
-            "success": True,
-            "duration_ms": int((time.perf_counter() - started_at) * 1000),
-            "timestamp": viewed_at,
-            "note": "selected screenshots for visual context",
-            "error": None,
-        }
+        result = view_screenshot(
+            screenshot_ids=screenshot_ids,
+            screenshots_dir=Path(state.run.root_dir) / "screenshots",
+        )
+        return _view_screenshot_result_to_dict(result)
 
     def _apply_tool_result(
         self,
@@ -1575,13 +1529,15 @@ class AutonomousComputerRuntimeHelpers:
         return x <= width and y <= height
 
 
-
-def _read_image_size(path: Path) -> tuple[int, int]:
-    try:
-        from PIL import Image
-
-        with Image.open(path) as image:
-            return image.size
-    except Exception:
-        return 0, 0
+def _view_screenshot_result_to_dict(result: ViewScreenshotResult) -> dict[str, Any]:
+    return {
+        "tool_name": result.tool_name,
+        "screenshot_ids": result.screenshot_ids,
+        "screenshots": result.screenshots,
+        "success": result.success,
+        "duration_ms": result.duration_ms,
+        "timestamp": result.timestamp,
+        "note": result.note,
+        "error": {"code": result.error["code"], "message": result.error["message"]} if result.error else None,
+    }
 
