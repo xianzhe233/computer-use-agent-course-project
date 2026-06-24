@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -96,16 +97,22 @@ LOCATOR_MODEL_ALIASES: dict[str, str] = {
     "ui_tars": "bytedance/ui-tars-1.5-7b",
 }
 
+UITARS_IMAGE_FACTOR = 28
+UITARS_MAX_PIXELS = 16384 * 28 * 28
+UITARS_MAX_RATIO = 200
+
 
 class UITarsElementLocator:
     def __init__(
         self,
         *,
         client: Any,
-        max_side: int = 1344,
+        max_pixels: int = UITARS_MAX_PIXELS,
+        image_factor: int = UITARS_IMAGE_FACTOR,
     ) -> None:
         self.client = client
-        self.max_side = max_side
+        self.max_pixels = max_pixels
+        self.image_factor = image_factor
 
     @classmethod
     def from_config_file(
@@ -114,7 +121,8 @@ class UITarsElementLocator:
         *,
         role: str = "locator",
         timeout_s: int = 60,
-        max_side: int = 1344,
+        max_pixels: int = UITARS_MAX_PIXELS,
+        image_factor: int = UITARS_IMAGE_FACTOR,
     ) -> UITarsElementLocator:
         from computer_use_agent.computer_agent import OpenAICompatibleChatClient
 
@@ -124,7 +132,7 @@ class UITarsElementLocator:
             role=role,
             timeout_s=timeout_s,
         )
-        return cls(client=client, max_side=max_side)
+        return cls(client=client, max_pixels=max_pixels, image_factor=image_factor)
 
     def locate(
         self,
@@ -135,7 +143,8 @@ class UITarsElementLocator:
     ) -> list[ElementLocationCandidate]:
         data_url, rendered_size, original_size = _prepare_locator_image(
             screenshot_path,
-            max_side=self.max_side,
+            max_pixels=self.max_pixels,
+            image_factor=self.image_factor,
         )
         user_message = HumanMessagePromptTemplate.from_template(
             [
@@ -321,12 +330,23 @@ def _locator_user_text_template() -> str:
     )
 
 
-def _prepare_locator_image(path: Path, *, max_side: int) -> tuple[str, tuple[int, int], tuple[int, int]]:
+def _prepare_locator_image(
+    path: Path,
+    *,
+    max_pixels: int = UITARS_MAX_PIXELS,
+    image_factor: int = UITARS_IMAGE_FACTOR,
+) -> tuple[str, tuple[int, int], tuple[int, int]]:
     with Image.open(path) as image:
         original_width, original_height = image.size
         prepared = image.convert("RGB") if image.mode not in {"RGB", "L"} else image.copy()
-        prepared.thumbnail((max_side, max_side))
-        rendered_width, rendered_height = prepared.size
+        rendered_width, rendered_height = _locator_render_size(
+            width=original_width,
+            height=original_height,
+            max_pixels=max_pixels,
+            image_factor=image_factor,
+        )
+        if (rendered_width, rendered_height) != (original_width, original_height):
+            prepared = prepared.resize((rendered_width, rendered_height))
         buffer = io.BytesIO()
         prepared.save(buffer, format="JPEG", quality=90, optimize=True)
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
@@ -335,6 +355,41 @@ def _prepare_locator_image(path: Path, *, max_side: int) -> tuple[str, tuple[int
         (rendered_width, rendered_height),
         (original_width, original_height),
     )
+
+
+def _locator_render_size(
+    *,
+    width: int,
+    height: int,
+    max_pixels: int = UITARS_MAX_PIXELS,
+    image_factor: int = UITARS_IMAGE_FACTOR,
+    max_ratio: int = UITARS_MAX_RATIO,
+) -> tuple[int, int]:
+    if width <= 0 or height <= 0:
+        raise ValueError("image width and height must be positive")
+    if max(width, height) / min(width, height) > max_ratio:
+        raise ValueError(
+            f"absolute aspect ratio must be smaller than {max_ratio}, got {max(width, height) / min(width, height)}"
+        )
+    if width * height <= max_pixels:
+        return (width, height)
+
+    scale = math.sqrt(max_pixels / (width * height))
+    scaled_width = max(image_factor, _floor_by_factor(int(width * scale), image_factor))
+    scaled_height = max(image_factor, _floor_by_factor(int(height * scale), image_factor))
+
+    while scaled_width * scaled_height > max_pixels:
+        if scaled_width >= scaled_height and scaled_width > image_factor:
+            scaled_width -= image_factor
+        elif scaled_height > image_factor:
+            scaled_height -= image_factor
+        else:
+            break
+    return (scaled_width, scaled_height)
+
+
+def _floor_by_factor(number: int, factor: int) -> int:
+    return max(factor, math.floor(number / factor) * factor)
 
 
 def _structured_locator_candidates(

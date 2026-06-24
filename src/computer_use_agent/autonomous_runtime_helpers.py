@@ -1234,7 +1234,7 @@ class AutonomousComputerRuntimeHelpers:
         self._emit(f"Tools     : {', '.join(state.control.allowed_tools)}")
         self._emit(
             f"Limits    : max_steps={self.max_steps}, tool_timeout={self.step_timeout_seconds}s, "
-            f"examiner=off"
+            f"examiner={'on' if state.control.examiner_enabled else 'off'}"
         )
         self._emit("=" * 80)
 

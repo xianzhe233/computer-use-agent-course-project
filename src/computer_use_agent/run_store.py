@@ -23,12 +23,14 @@ class RunStore:
         self.screenshot_index_path = self.screenshots_dir / "index.jsonl"
         self.location_results_dir = root / "locations"
         self.location_index_path = self.location_results_dir / "index.jsonl"
+        self.examiner_dir = root / "examiner"
 
     def prepare(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         self.command_logs_dir.mkdir(parents=True, exist_ok=True)
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
         self.location_results_dir.mkdir(parents=True, exist_ok=True)
+        self.examiner_dir.mkdir(parents=True, exist_ok=True)
 
     def write_command_result(self, step_id: int, result: CommandResult) -> dict[str, str]:
         command_result_id = f"cmd_{step_id:04d}"
@@ -114,13 +116,14 @@ class RunStore:
         payload: dict[str, Any],
         status: str,
         artifact_refs: list[str] | None = None,
+        phase: str = "main_loop",
     ) -> None:
         event = {
             "event_id": f"evt_{step_id:04d}_{event_type}",
             "step_id": step_id,
             "timestamp": datetime.now(UTC).isoformat(),
             "actor": actor,
-            "phase": "main_loop",
+            "phase": phase,
             "event_type": event_type,
             "payload": payload,
             "status": status,
@@ -128,6 +131,25 @@ class RunStore:
         }
         with self.trace_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    def write_examiner_review_input(self, review_count: int, payload: dict[str, Any]) -> Path:
+        path = self.examiner_dir / f"review_{review_count:04d}_input.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
+
+    def write_examiner_review_output(self, review_count: int, payload: dict[str, Any]) -> Path:
+        path = self.examiner_dir / f"review_{review_count:04d}_output.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
+
+    def load_screenshot_index(self) -> list[dict[str, Any]]:
+        return self._read_jsonl(self.screenshot_index_path)
+
+    def load_command_index(self) -> list[dict[str, Any]]:
+        return self._read_jsonl(self.command_index_path)
+
+    def load_location_index(self) -> list[dict[str, Any]]:
+        return self._read_jsonl(self.location_index_path)
 
     def write_summary(self, state: RuntimeState) -> None:
         summary = {
@@ -139,12 +161,28 @@ class RunStore:
             "tool_call_count": state.metrics.tool_call_count,
             "screenshot_count": state.metrics.screenshot_count,
             "command_count": state.metrics.command_count,
+            "rework_count": state.metrics.rework_count,
+            "examiner_review_count": state.examiner.review_count,
             "started_at": state.run.created_at,
             "ended_at": datetime.now(UTC).isoformat(),
             "runtime_seconds": state.metrics.runtime_seconds,
             "state": asdict(state),
         }
         self.summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @staticmethod
+    def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        records: list[dict[str, Any]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            loaded = json.loads(stripped)
+            if isinstance(loaded, dict):
+                records.append(loaded)
+        return records
 
 
 def mark_run_finished(state: RuntimeState, status: TerminalRunStatus, reason: str) -> None:

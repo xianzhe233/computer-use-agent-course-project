@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from .autonomous_runtime_helpers import AutonomousComputerRuntimeHelpers
+from .examiner_agent import ExaminerProtocol
+from .examiner_runtime import RuntimeExaminerLoop
 from .graph_runtime import AgentGraphState, compile_linear_agent_graph
 from .run_store import RunStore, mark_run_finished
 from .runtime_state import RuntimeState, TerminalRunStatus, create_runtime_state
@@ -36,9 +38,8 @@ AUTONOMOUS_COMPUTER_TOOLS: list[str] = [
 ]
 
 
-
 class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
-    """Autonomous runtime with terminal + GUI tools and no examiner loop, driven by LangGraph."""
+    """Autonomous runtime with terminal + GUI tools and examiner loop, driven by LangGraph."""
 
     def __init__(
         self,
@@ -50,11 +51,15 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
         gui_backend: GuiAutomationBackend | None = None,
         element_locator_backend: ElementLocatorBackend | None = None,
         agent: AutonomousComputerAgent | None = None,
+        examiner_agent: ExaminerProtocol | None = None,
         max_steps: int = 50,
         step_timeout_seconds: int = 180,
         max_consecutive_failures: int = 4,
+        max_rework_rounds: int = 2,
+        max_examiner_steps: int = 20,
         model_config_path: Path = Path("config/models.local.json"),
         model_role: str = "mainAgent",
+        examiner_role: str = "examiner",
         locator_role: str = "locator",
         capture_initial_screenshot: bool = True,
         screenshot_after_gui_action: bool = True,
@@ -69,12 +74,16 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
         self.gui_backend = gui_backend
         self.element_locator_backend: ElementLocatorBackend | None = element_locator_backend
         self.agent: AutonomousComputerAgent | None = agent
+        self.examiner_agent = examiner_agent
         self.model_config_path = model_config_path
         self.model_role = model_role
+        self.examiner_role = examiner_role
         self.locator_role = locator_role
         self.max_steps = max_steps
         self.step_timeout_seconds = step_timeout_seconds
         self.max_consecutive_failures = max_consecutive_failures
+        self.max_rework_rounds = max_rework_rounds
+        self.max_examiner_steps = max_examiner_steps
         self.capture_initial_screenshot = capture_initial_screenshot
         self.screenshot_after_gui_action = screenshot_after_gui_action
         self.post_gui_screenshot_delay_seconds = max(0.0, post_gui_screenshot_delay_seconds)
@@ -95,6 +104,9 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
             allowed_tools=list(AUTONOMOUS_COMPUTER_TOOLS),
             max_steps=self.max_steps,
             step_timeout_seconds=self.step_timeout_seconds,
+            max_rework_rounds=self.max_rework_rounds,
+            max_examiner_steps=self.max_examiner_steps,
+            examiner_enabled=True,
         )
         started_at = time.perf_counter()
         history: list[dict[str, object]] = []
@@ -108,7 +120,7 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
                 "workspace": str(self.workspace),
                 "mode": "autonomous_computer",
                 "allowed_tools": state.control.allowed_tools,
-                "examiner_enabled": False,
+                "examiner_enabled": state.control.examiner_enabled,
                 "locator_role": self.locator_role,
             },
             status="success",
@@ -187,6 +199,7 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
                 return {"step_id": next_step - 1, "terminated": True, "route": "terminated"}
 
             state.run.current_step = next_step
+            state.run.current_phase = "main_loop"
             action_id = f"act_{next_step:04d}"
             self._emit_step_header(step_id=next_step, title="planning")
             self._emit("Planning  : asking model for the next action")
@@ -346,7 +359,11 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
             action_id = str(graph_state["action_id"])
             completion_claim = decision.completion_claim.strip() or "Agent requested finish"
             self._emit_finish_request(decision=decision, completion_claim=completion_claim)
-            mark_run_finished(state, TerminalRunStatus.SUCCESS, completion_claim)
+            state.pending_finish.requested = True
+            state.pending_finish.request_step = step_id
+            state.pending_finish.completion_claim = completion_claim
+            state.pending_finish.supporting_evidence = list(decision.supporting_evidence)
+            state.pending_finish.remaining_uncertainty = decision.remaining_uncertainty
             state.last_action.action_id = action_id
             state.last_action.actor = "main_agent"
             state.last_action.action_type = "finish_request"
@@ -355,7 +372,7 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
                 "supporting_evidence": decision.supporting_evidence,
                 "remaining_uncertainty": decision.remaining_uncertainty,
             }
-            state.last_action.result_status = "success"
+            state.last_action.result_status = "pending"
             state.last_action.result_summary = completion_claim
             state.last_action.artifact_refs = decision.supporting_evidence
             store.append_trace(
@@ -366,7 +383,56 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
                 status="success",
                 artifact_refs=decision.supporting_evidence,
             )
-            return {"step_id": step_id, "terminated": True, "route": "end"}
+
+            review_result = self._examiner_loop().review(state=state, store=store, history=history)
+            decision_name = str(review_result["decision"])
+            if decision_name == "accept":
+                mark_run_finished(state, TerminalRunStatus.SUCCESS, str(review_result["reason"]))
+                state.pending_finish.requested = False
+                state.last_action.actor = "examiner"
+                state.last_action.action_type = "examiner_accept"
+                state.last_action.action_args = {
+                    "completion_claim": completion_claim,
+                    "supporting_evidence": decision.supporting_evidence,
+                }
+                state.last_action.result_status = "success"
+                state.last_action.result_summary = str(review_result["reason"])
+                state.last_action.artifact_refs = list(review_result.get("artifact_refs", []))
+                return {"step_id": step_id, "terminated": True, "route": "end"}
+
+            if decision_name == "reject":
+                state.metrics.rework_count += 1
+                state.pending_finish.requested = False
+                state.run.current_phase = "main_loop"
+                state.last_action.actor = "examiner"
+                state.last_action.action_type = "examiner_reject"
+                state.last_action.action_args = {
+                    "reason": review_result["reason"],
+                    "missing_evidence": review_result["missing_evidence"],
+                    "suggested_next_steps": review_result["suggested_next_steps"],
+                }
+                state.last_action.result_status = "failed"
+                state.last_action.result_summary = str(review_result["reason"])
+                state.last_action.artifact_refs = list(review_result.get("artifact_refs", []))
+                if state.metrics.rework_count > state.control.max_rework_rounds:
+                    mark_run_finished(state, TerminalRunStatus.ABORTED, "Maximum examiner rework rounds reached")
+                    self._emit("Abort     : maximum examiner rework rounds reached")
+                    return {"step_id": step_id, "terminated": True, "route": "terminated"}
+                self._emit("Examiner  : rejected finish request; returning to main loop")
+                return {"step_id": step_id, "route": "loop"}
+
+            mark_run_finished(state, TerminalRunStatus.ABORTED, str(review_result["reason"]))
+            state.last_action.actor = "examiner"
+            state.last_action.action_type = "examiner_abort"
+            state.last_action.action_args = {
+                "reason": review_result["reason"],
+                "missing_evidence": review_result["missing_evidence"],
+                "suggested_next_steps": review_result["suggested_next_steps"],
+            }
+            state.last_action.result_status = "failed"
+            state.last_action.result_summary = str(review_result["reason"])
+            state.last_action.artifact_refs = list(review_result.get("artifact_refs", []))
+            return {"step_id": step_id, "terminated": True, "route": "terminated"}
 
         return compile_linear_agent_graph(
             plan_node=plan_node,
@@ -376,6 +442,14 @@ class AutonomousComputerRuntime(AutonomousComputerRuntimeHelpers):
             route_after_plan=lambda graph_state: cast(Any, graph_state["route"]),
             route_after_validate=lambda graph_state: cast(Any, graph_state["route"]),
             route_after_execute=lambda graph_state: cast(Any, graph_state["route"]),
+            route_after_finish=lambda graph_state: cast(Any, graph_state["route"]),
         )
 
-
+    def _examiner_loop(self) -> RuntimeExaminerLoop:
+        return RuntimeExaminerLoop(
+            model_config_path=self.model_config_path,
+            examiner_role=self.examiner_role,
+            step_timeout_seconds=self.step_timeout_seconds,
+            progress_callback=self.progress_callback,
+            examiner_agent=self.examiner_agent,
+        )

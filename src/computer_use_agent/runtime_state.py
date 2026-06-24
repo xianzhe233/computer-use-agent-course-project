@@ -40,6 +40,9 @@ class ControlState:
     max_steps: int = 0
     step_timeout_seconds: int = 180
     allowed_tools: list[str] = field(default_factory=list)
+    max_rework_rounds: int = 2
+    max_examiner_steps: int = 20
+    examiner_enabled: bool = True
     terminated_reason: str = ""
 
 
@@ -84,6 +87,31 @@ class LastActionState:
 
 
 @dataclass(slots=True)
+class PendingFinishState:
+    requested: bool = False
+    request_step: int = 0
+    completion_claim: str = ""
+    supporting_evidence: list[str] = field(default_factory=list)
+    remaining_uncertainty: str = ""
+
+
+@dataclass(slots=True)
+class ExaminerState:
+    review_count: int = 0
+    selected_screenshot_ids: list[str] = field(default_factory=list)
+    selected_screenshot_paths: list[str] = field(default_factory=list)
+    reviewed_screenshot_ids: list[str] = field(default_factory=list)
+    observed_findings: list[str] = field(default_factory=list)
+    remaining_questions: list[str] = field(default_factory=list)
+    observation_log: list[dict[str, object]] = field(default_factory=list)
+    last_decision: str = ""
+    last_reason: str = ""
+    missing_evidence: list[str] = field(default_factory=list)
+    suggested_next_steps: list[str] = field(default_factory=list)
+    review_trace_refs: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class MetricsState:
     step_count: int = 0
     tool_call_count: int = 0
@@ -111,6 +139,8 @@ class RuntimeState:
     control: ControlState = field(default_factory=ControlState)
     observation: ObservationState = field(default_factory=ObservationState)
     last_action: LastActionState = field(default_factory=LastActionState)
+    pending_finish: PendingFinishState = field(default_factory=PendingFinishState)
+    examiner: ExaminerState = field(default_factory=ExaminerState)
     metrics: MetricsState = field(default_factory=MetricsState)
     errors: ErrorState = field(default_factory=ErrorState)
 
@@ -127,6 +157,9 @@ def create_runtime_state(
     allowed_tools: list[str] | None = None,
     max_steps: int = 0,
     step_timeout_seconds: int = 180,
+    max_rework_rounds: int = 2,
+    max_examiner_steps: int = 20,
+    examiner_enabled: bool = True,
 ) -> RuntimeState:
     created_at = datetime.now(UTC).isoformat()
     task = TaskState(user_request=user_request, task_type=task_type, goal_summary=user_request.strip())
@@ -135,5 +168,8 @@ def create_runtime_state(
         max_steps=max_steps,
         step_timeout_seconds=step_timeout_seconds,
         allowed_tools=allowed_tools or [],
+        max_rework_rounds=max_rework_rounds,
+        max_examiner_steps=max_examiner_steps,
+        examiner_enabled=examiner_enabled,
     )
     return RuntimeState(run=run, task=task, control=control)

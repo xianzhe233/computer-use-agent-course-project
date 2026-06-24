@@ -5,6 +5,7 @@ from typing import Sequence
 from computer_use_agent.autonomous_terminal_runtime import AutonomousTerminalRuntime
 from computer_use_agent.runtime_state import RuntimeState
 from computer_use_agent.computer_agent import TerminalAgentDecision
+from computer_use_agent.examiner_agent import ExaminerAction
 from computer_use_agent.tools.run_command import CommandResult, PowerShellBackend
 
 
@@ -33,6 +34,22 @@ class ScriptedTerminalAgent:
     ) -> TerminalAgentDecision:
         self.calls.append((state, workspace, list(history)))
         return self.decisions.pop(0)
+
+
+class ScriptedExaminerAgent:
+    def __init__(self, actions: list[ExaminerAction]) -> None:
+        self.actions = actions
+        self.calls: list[tuple[RuntimeState, dict[str, object], list[dict[str, object]]]] = []
+
+    def act(
+        self,
+        *,
+        state: RuntimeState,
+        review_payload: dict[str, object],
+        history: Sequence[dict[str, object]],
+    ) -> ExaminerAction:
+        self.calls.append((state, review_payload, list(history)))
+        return self.actions.pop(0)
 
 
 def test_autonomous_terminal_runtime_executes_command_then_finishes(tmp_path: Path) -> None:
@@ -69,6 +86,9 @@ def test_autonomous_terminal_runtime_executes_command_then_finishes(tmp_path: Pa
         runs_root=tmp_path / "runs",
         command_backend=backend,
         agent=agent,
+        examiner_agent=ScriptedExaminerAgent(
+            [ExaminerAction(kind="submit_decision", decision="accept", reason="已列出当前目录文件")]
+        ),
     )
 
     state = runtime.run("列出当前目录文件")
@@ -88,7 +108,138 @@ def test_autonomous_terminal_runtime_executes_command_then_finishes(tmp_path: Pa
     event_types = [record["event_type"] for record in trace_records]
     assert event_types.count("agent_decision") == 2
     assert "tool_execution" in event_types
-    assert event_types[-1] == "finish_request"
+    assert "finish_request" in event_types
+    assert "examiner_review" in event_types
+
+
+def test_autonomous_terminal_runtime_runs_examiner_before_success(tmp_path: Path) -> None:
+    backend = SequenceBackend(
+        [
+            CommandResult(
+                command="Get-ChildItem",
+                stdout="demo.txt\nREADME.md",
+                stderr="",
+                exit_code=0,
+                success=True,
+                duration_ms=12,
+            )
+        ]
+    )
+    agent = ScriptedTerminalAgent(
+        [
+            TerminalAgentDecision(
+                kind="tool_call",
+                thought_summary="查看当前目录",
+                tool_name="run_command",
+                tool_args={"command": "Get-ChildItem"},
+                expected_observation="输出目录文件列表",
+            ),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="已列出当前目录文件",
+                supporting_evidence=["command:cmd_0001"],
+            ),
+        ]
+    )
+    examiner = ScriptedExaminerAgent(
+        [
+            ExaminerAction(
+                kind="submit_decision",
+                decision="accept",
+                reason="命令输出已证明目录读取成功",
+            )
+        ]
+    )
+    runtime = AutonomousTerminalRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        command_backend=backend,
+        agent=agent,
+        examiner_agent=examiner,
+    )
+
+    state = runtime.run("列出当前目录文件")
+
+    assert state.run.status == "success"
+    assert state.examiner.review_count == 1
+    assert state.examiner.last_decision == "accept"
+    assert state.run.terminated_reason == "命令输出已证明目录读取成功"
+    run_dir = tmp_path / "runs" / state.run.run_id
+    assert (run_dir / "examiner" / "review_0001_input.json").exists()
+    assert (run_dir / "examiner" / "review_0001_output.json").exists()
+
+
+def test_autonomous_terminal_runtime_rejects_once_then_returns_to_main_loop(tmp_path: Path) -> None:
+    backend = SequenceBackend(
+        [
+            CommandResult(
+                command="Get-ChildItem",
+                stdout="demo.txt",
+                stderr="",
+                exit_code=0,
+                success=True,
+                duration_ms=12,
+            ),
+            CommandResult(
+                command="Get-Content demo.txt",
+                stdout="hello",
+                stderr="",
+                exit_code=0,
+                success=True,
+                duration_ms=9,
+            ),
+        ]
+    )
+    agent = ScriptedTerminalAgent(
+        [
+            TerminalAgentDecision(kind="tool_call", tool_name="run_command", tool_args={"command": "Get-ChildItem"}),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="目录已经列出，应当完成",
+                supporting_evidence=["command:cmd_0001"],
+            ),
+            TerminalAgentDecision(kind="tool_call", tool_name="run_command", tool_args={"command": "Get-Content demo.txt"}),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="已补充读取文件内容作为证据",
+                supporting_evidence=["command:cmd_0002"],
+            ),
+        ]
+    )
+    examiner = ScriptedExaminerAgent(
+        [
+            ExaminerAction(
+                kind="submit_decision",
+                decision="reject",
+                reason="缺少直接读取目标文件内容的证据",
+                missing_evidence=["缺少文件内容验证"],
+                suggested_next_steps=["执行 Get-Content demo.txt 并再次 finish_request"],
+            ),
+            ExaminerAction(
+                kind="submit_decision",
+                decision="accept",
+                reason="已补充读取文件内容，证据充分",
+            ),
+        ]
+    )
+    runtime = AutonomousTerminalRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        command_backend=backend,
+        agent=agent,
+        examiner_agent=examiner,
+    )
+
+    state = runtime.run("验证 demo.txt 内容")
+
+    assert state.run.status == "success"
+    assert state.metrics.rework_count == 1
+    assert state.examiner.review_count == 2
+    assert state.examiner.last_decision == "accept"
+    run_dir = tmp_path / "runs" / state.run.run_id
+    review_one = json.loads((run_dir / "examiner" / "review_0001_output.json").read_text(encoding="utf-8"))
+    assert review_one["decision"] == "reject"
+    assert review_one["suggested_next_steps"] == ["执行 Get-Content demo.txt 并再次 finish_request"]
 
 
 def test_autonomous_terminal_runtime_emits_progress_messages(tmp_path: Path) -> None:
@@ -121,6 +272,9 @@ def test_autonomous_terminal_runtime_emits_progress_messages(tmp_path: Path) -> 
         runs_root=tmp_path / "runs",
         command_backend=backend,
         agent=agent,
+        examiner_agent=ScriptedExaminerAgent(
+            [ExaminerAction(kind="submit_decision", decision="accept", reason="已完成")]
+        ),
         progress_callback=progress_messages.append,
     )
 
@@ -211,6 +365,9 @@ def test_autonomous_terminal_runtime_allows_recovery_after_command_failure(tmp_p
         runs_root=tmp_path / "runs",
         command_backend=backend,
         agent=agent,
+        examiner_agent=ScriptedExaminerAgent(
+            [ExaminerAction(kind="submit_decision", decision="accept", reason="已恢复并完成目录检查")]
+        ),
         max_consecutive_failures=3,
     )
 

@@ -370,7 +370,7 @@ def _coerce_tool_args(value: object) -> dict[str, object]:
     raise TerminalAgentProtocolError("tool call arguments must be an object")
 
 
-def _screenshot_data_url(path: Path, *, max_side: int = 1280) -> str:
+def _screenshot_data_url(path: Path) -> str:
     if not path.exists():
         return ""
 
@@ -378,8 +378,7 @@ def _screenshot_data_url(path: Path, *, max_side: int = 1280) -> str:
         from PIL import Image
 
         with Image.open(path) as image:
-            image.thumbnail((max_side, max_side))
-            output_image = image.convert("RGB") if image.mode not in {"RGB", "L"} else image
+            output_image = image.convert("RGB") if image.mode not in {"RGB", "L"} else image.copy()
             buffer = io.BytesIO()
             output_image.save(buffer, format="JPEG", quality=85, optimize=True)
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")

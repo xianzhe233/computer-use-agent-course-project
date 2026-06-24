@@ -36,6 +36,7 @@ def compile_linear_agent_graph(
     route_after_plan: GraphRouter,
     route_after_validate: GraphRouter,
     route_after_execute: GraphRouter,
+    route_after_finish: GraphRouter | None = None,
 ):
     graph = StateGraph(AgentGraphState)
     graph.add_node("plan", cast(Any, plan_node))
@@ -69,5 +70,16 @@ def compile_linear_agent_graph(
             "terminated": END,
         },
     )
-    graph.add_edge("finish", END)
+    if route_after_finish is None:
+        graph.add_edge("finish", END)
+    else:
+        graph.add_conditional_edges(
+            "finish",
+            route_after_finish,
+            {
+                "loop": "plan",
+                "end": END,
+                "terminated": END,
+            },
+        )
     return graph.compile()

@@ -1,8 +1,11 @@
 import json
 from pathlib import Path
 
+from PIL import Image
+
 from computer_use_agent.run_store import RunStore
-from computer_use_agent.tools.screenshot import ScreenshotExecutionError, ScreenshotResult, take_screenshot
+from computer_use_agent.tools import screenshot as screenshot_module
+from computer_use_agent.tools.screenshot import ScreenshotExecutionError, ScreenshotResult, overlay_cursor_marker, take_screenshot
 
 
 class FakeScreenshotBackend:
@@ -57,6 +60,16 @@ def test_take_screenshot_returns_structured_error(tmp_path: Path) -> None:
         "code": "SCREENSHOT_CAPTURE_FAILED",
         "message": "ScreenshotExecutionError: backend failed",
     }
+
+
+def test_overlay_cursor_marker_draws_small_pointer(monkeypatch) -> None:
+    base = Image.new("RGB", (40, 40), (255, 255, 255))
+    monkeypatch.setattr(screenshot_module, "_get_cursor_position", lambda: (10, 10))
+
+    marked = overlay_cursor_marker(base, capture_origin=(0, 0))
+
+    assert marked.getpixel((10, 10)) != (255, 255, 255)
+    assert marked.getpixel((12, 20)) != (255, 255, 255)
 
 
 def test_run_store_writes_screenshot_index(tmp_path: Path) -> None:

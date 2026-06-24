@@ -11,9 +11,10 @@ from time import sleep
 from typing import Literal
 
 from fuzzywuzzy import process
-from PIL import Image, ImageGrab
+from PIL import Image
 
 from computer_use_agent._vendor.windows_use import uia
+from computer_use_agent.tools.screenshot import capture_screen_image
 from computer_use_agent._vendor.windows_use.desktop.config import KEY_ALIASES
 from computer_use_agent._vendor.windows_use.desktop.utils import escape_text_for_sendkeys
 
@@ -144,10 +145,7 @@ class WindowsUseDesktopBackend:
         return f"Focused window {resolved_title}."
 
     def get_screenshot(self, as_bytes: bool = False) -> bytes | Image.Image:
-        try:
-            screenshot = ImageGrab.grab(all_screens=True)
-        except Exception:
-            screenshot = ImageGrab.grab()
+        screenshot = capture_screen_image()
         if as_bytes:
             buffered = io.BytesIO()
             screenshot.save(buffered, format="PNG")

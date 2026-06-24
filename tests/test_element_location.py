@@ -6,7 +6,9 @@ from langchain_core.messages import HumanMessage
 from computer_use_agent.tools.element_location import (
     ElementLocationCandidate,
     LocatorResponsePayload,
+    UITARS_MAX_PIXELS,
     UITarsElementLocator,
+    _locator_render_size,
     locate_element,
 )
 
@@ -137,11 +139,25 @@ def test_locate_element_returns_backend_failure(tmp_path: Path) -> None:
     }
 
 
+def test_locator_render_size_keeps_original_when_within_pixel_budget() -> None:
+    assert _locator_render_size(width=2560, height=1600) == (2560, 1600)
+
+
+def test_locator_render_size_downscales_large_image_and_aligns_to_factor() -> None:
+    width, height = _locator_render_size(width=5000, height=4000)
+
+    assert width % 28 == 0
+    assert height % 28 == 0
+    assert width * height <= UITARS_MAX_PIXELS
+    assert width < 5000
+    assert height < 4000
+
+
 def test_uitars_locator_uses_langchain_messages_and_structured_output(tmp_path: Path) -> None:
     screenshot_path = tmp_path / "locator.png"
     Image.new("RGB", (400, 200), "white").save(screenshot_path)
     client = FakeStructuredClient(LocatorResponsePayload(point=[100, 50]))
-    locator = UITarsElementLocator(client=client, max_side=400)
+    locator = UITarsElementLocator(client=client)
 
     candidates = locator.locate(query="搜索框", screenshot_path=screenshot_path, screenshot_id="ss_0099")
 
@@ -158,6 +174,7 @@ def test_uitars_locator_uses_langchain_messages_and_structured_output(tmp_path: 
     text_part = content[0]
     assert isinstance(text_part, dict)
     assert "元素描述：搜索框" in str(text_part.get("text", ""))
+    assert "rendered image）是 400x200" in str(text_part.get("text", ""))
     image_part = content[1]
     assert isinstance(image_part, dict)
     assert str(image_part.get("type", "")) == "image_url"

@@ -16,6 +16,11 @@ def test_create_runtime_state_has_mvp1_fields() -> None:
     assert Path(state.run.root_dir) == Path("runs/run_0001")
     assert state.run.status == TerminalRunStatus.RUNNING
     assert state.last_action.action_id == ""
+    assert state.pending_finish.requested is False
+    assert state.examiner.review_count == 0
+    assert state.control.examiner_enabled is True
+    assert state.control.max_rework_rounds == 2
+    assert state.control.max_examiner_steps == 20
     assert state.metrics.step_count == 0
     assert state.errors.last_error_code == ""
 

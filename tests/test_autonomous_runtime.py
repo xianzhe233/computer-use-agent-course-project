@@ -4,8 +4,9 @@ from typing import Sequence
 from unittest.mock import patch
 
 from computer_use_agent.autonomous_runtime import AutonomousComputerRuntime
-from computer_use_agent.runtime_state import RuntimeState
 from computer_use_agent.computer_agent import TerminalAgentDecision
+from computer_use_agent.examiner_agent import ExaminerAction
+from computer_use_agent.runtime_state import RuntimeState
 from computer_use_agent.tools.element_location import ElementLocationCandidate
 from computer_use_agent.tools.run_command import CommandResult, PowerShellBackend
 
@@ -43,11 +44,7 @@ class AssertSelectedScreenshotAgent:
             assert state.observation.selected_screenshot_ids == ["ss_0001"]
             assert len(state.observation.selected_screenshot_paths) == 1
             assert state.observation.selected_screenshot_paths[0].endswith("ss_0001.png")
-            return TerminalAgentDecision(
-                kind="tool_call",
-                tool_name="open_app",
-                tool_args={"name": "notepad"},
-            )
+            return TerminalAgentDecision(kind="tool_call", tool_name="open_app", tool_args={"name": "notepad"})
         assert state.observation.latest_screenshot_id == "ss_0002"
         assert state.observation.selected_screenshot_ids == ["ss_0002"]
         assert len(state.observation.selected_screenshot_paths) == 1
@@ -57,6 +54,22 @@ class AssertSelectedScreenshotAgent:
             completion_claim="GUI 动作后的自动截图已自动进入下一轮上下文",
             supporting_evidence=["screenshot:ss_0002"],
         )
+
+
+class ScriptedExaminerAgent:
+    def __init__(self, actions: list[ExaminerAction]) -> None:
+        self.actions = actions
+        self.calls: list[tuple[RuntimeState, dict[str, object], list[dict[str, object]]]] = []
+
+    def act(
+        self,
+        *,
+        state: RuntimeState,
+        review_payload: dict[str, object],
+        history: Sequence[dict[str, object]],
+    ) -> ExaminerAction:
+        self.calls.append((state, review_payload, list(history)))
+        return self.actions.pop(0)
 
 
 class FakeScreenshotBackend:
@@ -158,6 +171,10 @@ class SequenceBackend(PowerShellBackend):
         return self.results.pop(0)
 
 
+def _accept_examiner(reason: str) -> ScriptedExaminerAgent:
+    return ScriptedExaminerAgent([ExaminerAction(kind="submit_decision", decision="accept", reason=reason)])
+
+
 def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path) -> None:
     screenshot_backend = FakeScreenshotBackend()
     gui_backend = FakeGuiBackend()
@@ -205,12 +222,15 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
         gui_backend=gui_backend,
         element_locator_backend=locator_backend,
         agent=agent,
+        examiner_agent=_accept_examiner("已点击编辑区并输入文本"),
     )
 
     state = runtime.run("在 GUI 中输入 hello gui")
 
     assert state.run.status == "success"
     assert state.task.task_type == "hybrid"
+    assert state.examiner.review_count == 1
+    assert state.examiner.last_decision == "accept"
     assert "take_screenshot" in state.control.allowed_tools
     assert "run_command" in state.control.allowed_tools
     assert state.metrics.screenshot_count == 4
@@ -236,7 +256,7 @@ def test_autonomous_computer_runtime_uses_gui_tools_then_finishes(tmp_path: Path
     screenshot_index = (run_dir / "screenshots" / "index.jsonl").read_text(encoding="utf-8").strip().splitlines()
     assert len(screenshot_index) == 4
     assert (run_dir / "locations" / "loc_0002.json").exists()
-
+    assert (run_dir / "examiner" / "review_0001_input.json").exists()
     trace_records = [json.loads(line) for line in (run_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
     execution_results = [
         record["payload"]["result"]["tool_name"]
@@ -279,21 +299,13 @@ def test_autonomous_runtime_auto_locates_semantic_click_and_type_text(tmp_path: 
     )
     agent = ScriptedComputerAgent(
         [
-            TerminalAgentDecision(
-                kind="tool_call",
-                tool_name="take_screenshot",
-                tool_args={"description": "observe the app"},
-            ),
+            TerminalAgentDecision(kind="tool_call", tool_name="take_screenshot", tool_args={"description": "observe the app"}),
             TerminalAgentDecision(
                 kind="tool_call",
                 tool_name="type_text",
                 tool_args={"text": "hello", "target_query": "搜索框", "press_enter": False},
             ),
-            TerminalAgentDecision(
-                kind="tool_call",
-                tool_name="click",
-                tool_args={"target_query": "提交按钮"},
-            ),
+            TerminalAgentDecision(kind="tool_call", tool_name="click", tool_args={"target_query": "提交按钮"}),
             TerminalAgentDecision(
                 kind="finish_request",
                 completion_claim="已通过语义定位完成输入和点击",
@@ -308,6 +320,7 @@ def test_autonomous_runtime_auto_locates_semantic_click_and_type_text(tmp_path: 
         gui_backend=gui_backend,
         element_locator_backend=locator_backend,
         agent=agent,
+        examiner_agent=_accept_examiner("已通过语义定位完成输入和点击"),
     )
 
     state = runtime.run("在搜索框输入 hello 然后点击提交按钮")
@@ -358,16 +371,8 @@ def test_autonomous_runtime_auto_locates_drag_start_and_end(tmp_path: Path) -> N
     )
     agent = ScriptedComputerAgent(
         [
-            TerminalAgentDecision(
-                kind="tool_call",
-                tool_name="take_screenshot",
-                tool_args={"description": "before drag"},
-            ),
-            TerminalAgentDecision(
-                kind="tool_call",
-                tool_name="drag",
-                tool_args={"start_query": "开始滑块", "end_query": "结束滑块"},
-            ),
+            TerminalAgentDecision(kind="tool_call", tool_name="take_screenshot", tool_args={"description": "before drag"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="drag", tool_args={"start_query": "开始滑块", "end_query": "结束滑块"}),
             TerminalAgentDecision(
                 kind="finish_request",
                 completion_claim="已通过语义定位完成拖拽",
@@ -382,6 +387,7 @@ def test_autonomous_runtime_auto_locates_drag_start_and_end(tmp_path: Path) -> N
         gui_backend=gui_backend,
         element_locator_backend=locator_backend,
         agent=agent,
+        examiner_agent=_accept_examiner("已通过语义定位完成拖拽"),
     )
 
     state = runtime.run("把滑块从开始拖到结束")
@@ -419,6 +425,7 @@ def test_autonomous_computer_runtime_allows_recovery_after_validation_failure(tm
         runs_root=tmp_path / "runs",
         screenshot_backend=FakeScreenshotBackend(),
         agent=agent,
+        examiner_agent=_accept_examiner("已在校验失败后恢复并补充截图"),
         max_consecutive_failures=3,
         capture_initial_screenshot=False,
     )
@@ -439,6 +446,76 @@ def test_autonomous_computer_runtime_allows_recovery_after_validation_failure(tm
     failed_validation = next(record for record in trace_records if record["event_type"] == "tool_validation")
     assert failed_validation["status"] == "failed"
     assert failed_validation["payload"]["error"]["code"] == "SCREENSHOT_REQUIRED"
+
+
+def test_autonomous_computer_runtime_rejects_once_then_returns_to_main_loop(tmp_path: Path) -> None:
+    backend = SequenceBackend(
+        [
+            CommandResult(
+                command="Get-ChildItem",
+                stdout="demo.txt",
+                stderr="",
+                exit_code=0,
+                success=True,
+                duration_ms=12,
+            ),
+            CommandResult(
+                command="Get-Content demo.txt",
+                stdout="hello",
+                stderr="",
+                exit_code=0,
+                success=True,
+                duration_ms=9,
+            ),
+        ]
+    )
+    agent = ScriptedComputerAgent(
+        [
+            TerminalAgentDecision(kind="tool_call", tool_name="run_command", tool_args={"command": "Get-ChildItem"}),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="目录已经列出，应当完成",
+                supporting_evidence=["command:cmd_0001"],
+            ),
+            TerminalAgentDecision(kind="tool_call", tool_name="run_command", tool_args={"command": "Get-Content demo.txt"}),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="已补充读取文件内容作为证据",
+                supporting_evidence=["command:cmd_0002"],
+            ),
+        ]
+    )
+    examiner = ScriptedExaminerAgent(
+        [
+            ExaminerAction(
+                kind="submit_decision",
+                decision="reject",
+                reason="缺少直接读取目标文件内容的证据",
+                missing_evidence=["缺少文件内容验证"],
+                suggested_next_steps=["执行 Get-Content demo.txt 并再次 finish_request"],
+            ),
+            ExaminerAction(kind="submit_decision", decision="accept", reason="已补充读取文件内容，证据充分"),
+        ]
+    )
+    runtime = AutonomousComputerRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        command_backend=backend,
+        screenshot_backend=FakeScreenshotBackend(),
+        agent=agent,
+        examiner_agent=examiner,
+    )
+
+    state = runtime.run("验证 demo.txt 内容")
+
+    assert state.run.status == "success"
+    assert state.metrics.rework_count == 1
+    assert state.examiner.review_count == 2
+    assert state.examiner.last_decision == "accept"
+    run_dir = tmp_path / "runs" / state.run.run_id
+    review_one = json.loads((run_dir / "examiner" / "review_0001_output.json").read_text(encoding="utf-8"))
+    assert review_one["decision"] == "reject"
+    assert review_one["suggested_next_steps"] == ["执行 Get-Content demo.txt 并再次 finish_request"]
 
 
 def test_autonomous_computer_runtime_supports_new_gui_tools(tmp_path: Path) -> None:
@@ -482,6 +559,7 @@ def test_autonomous_computer_runtime_supports_new_gui_tools(tmp_path: Path) -> N
         gui_backend=gui_backend,
         element_locator_backend=locator_backend,
         agent=agent,
+        examiner_agent=_accept_examiner("已执行新增 GUI 工具"),
         max_steps=12,
     )
 
@@ -522,6 +600,7 @@ def test_gui_action_auto_screenshot_is_selected_for_next_turn(tmp_path: Path) ->
         screenshot_backend=FakeScreenshotBackend(),
         gui_backend=FakeGuiBackend(),
         agent=AssertSelectedScreenshotAgent(),
+        examiner_agent=_accept_examiner("GUI 动作后的自动截图已自动进入下一轮上下文"),
     )
 
     state = runtime.run("打开记事本后，下一轮自动带上刚产生的截图")
@@ -541,6 +620,7 @@ def test_gui_action_auto_screenshot_waits_before_capture(tmp_path: Path) -> None
         screenshot_backend=FakeScreenshotBackend(),
         gui_backend=FakeGuiBackend(),
         agent=AssertSelectedScreenshotAgent(),
+        examiner_agent=_accept_examiner("GUI 动作后的自动截图已自动进入下一轮上下文"),
         post_gui_screenshot_delay_seconds=0.25,
     )
 
@@ -554,21 +634,9 @@ def test_gui_action_auto_screenshot_waits_before_capture(tmp_path: Path) -> None
 def test_autonomous_computer_runtime_can_view_multiple_historical_screenshots(tmp_path: Path) -> None:
     agent = ScriptedComputerAgent(
         [
-            TerminalAgentDecision(
-                kind="tool_call",
-                tool_name="take_screenshot",
-                tool_args={"description": "first observation"},
-            ),
-            TerminalAgentDecision(
-                kind="tool_call",
-                tool_name="take_screenshot",
-                tool_args={"description": "second observation"},
-            ),
-            TerminalAgentDecision(
-                kind="tool_call",
-                tool_name="view_screenshot",
-                tool_args={"screenshot_ids": ["ss_0002", "ss_0003"]},
-            ),
+            TerminalAgentDecision(kind="tool_call", tool_name="take_screenshot", tool_args={"description": "first observation"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="take_screenshot", tool_args={"description": "second observation"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="view_screenshot", tool_args={"screenshot_ids": ["ss_0002", "ss_0003"]}),
             TerminalAgentDecision(
                 kind="finish_request",
                 completion_claim="已回看多张指定截图",
@@ -581,6 +649,7 @@ def test_autonomous_computer_runtime_can_view_multiple_historical_screenshots(tm
         runs_root=tmp_path / "runs",
         screenshot_backend=FakeScreenshotBackend(),
         agent=agent,
+        examiner_agent=_accept_examiner("已回看多张指定截图"),
     )
 
     state = runtime.run("回看刚才的截图")
@@ -590,7 +659,7 @@ def test_autonomous_computer_runtime_can_view_multiple_historical_screenshots(tm
     assert state.metrics.screenshot_count == 3
     assert state.observation.latest_screenshot_id == "ss_0003"
     assert state.observation.selected_screenshot_ids == ["ss_0002", "ss_0003"]
-    assert state.last_action.artifact_refs == ["screenshot:ss_0002", "screenshot:ss_0003"]
+    assert state.examiner.last_decision == "accept"
 
     run_dir = tmp_path / "runs" / state.run.run_id
     trace_records = [json.loads(line) for line in (run_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -603,6 +672,59 @@ def test_autonomous_computer_runtime_can_view_multiple_historical_screenshots(tm
     )
     assert view_record["artifact_refs"] == ["screenshot:ss_0002", "screenshot:ss_0003"]
     assert view_record["payload"]["result"]["success"] is True
+
+
+def test_examiner_observation_summary_is_carried_across_review_steps(tmp_path: Path) -> None:
+    class ObservationTrackingExaminer:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def act(
+            self,
+            *,
+            state: RuntimeState,
+            review_payload: dict[str, object],
+            history: Sequence[dict[str, object]],
+        ) -> ExaminerAction:
+            self.call_count += 1
+            if self.call_count == 1:
+                return ExaminerAction(
+                    kind="view_screenshot",
+                    screenshot_ids=["ss_0002"],
+                    note="检查输入后的最终截图",
+                    observed_findings=["截图中已经能看到 hello examiner 文本"],
+                    remaining_questions=["还需要确认这是否就是最终证据图"],
+                )
+            assert history[0]["observed_findings"] == ["截图中已经能看到 hello examiner 文本"]
+            assert state.examiner.observed_findings == ["截图中已经能看到 hello examiner 文本"]
+            assert state.examiner.remaining_questions == ["还需要确认这是否就是最终证据图"]
+            assert state.examiner.observation_log[0]["screenshot_ids"] == ["ss_0002"]
+            return ExaminerAction(kind="submit_decision", decision="accept", reason="观察摘要已成功回传")
+
+    agent = ScriptedComputerAgent(
+        [
+            TerminalAgentDecision(kind="tool_call", tool_name="take_screenshot", tool_args={"description": "collect evidence"}),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="已收集截图证据",
+                supporting_evidence=["screenshot:ss_0002"],
+            ),
+        ]
+    )
+    runtime = AutonomousComputerRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        screenshot_backend=FakeScreenshotBackend(),
+        agent=agent,
+        examiner_agent=ObservationTrackingExaminer(),
+    )
+
+    state = runtime.run("采集截图后由 examiner 审阅")
+
+    assert state.run.status == "success"
+    assert state.examiner.observed_findings == ["截图中已经能看到 hello examiner 文本"]
+    assert state.examiner.remaining_questions == ["还需要确认这是否就是最终证据图"]
+    assert state.examiner.reviewed_screenshot_ids == ["ss_0002"]
 
 
 def test_autonomous_computer_runtime_blocks_risky_commands(tmp_path: Path) -> None:

@@ -1,3 +1,5 @@
+import base64
+import io
 from pathlib import Path
 
 import pytest
@@ -113,7 +115,11 @@ def test_computer_agent_prompt_mentions_langchain_tool_calling_rules() -> None:
     assert "finish_request" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "优先使用 run_command 等命令工具完成任务" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "take_screenshot -> semantic target -> 单步动作 -> take_screenshot" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "控件类型或可见文本 + 所在窗口/面板/区域 + 布局参照物" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "不要只写过短、孤立、缺少上下文的目标名称" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "Get-StartApps" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "只有 examiner accept 才算真正完成" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "只有 examiner accept 才算真正完成" in TERMINAL_AGENT_SYSTEM_PROMPT
     assert "terminal-only 模式下只会绑定 run_command 与 finish_request" in TERMINAL_AGENT_SYSTEM_PROMPT
 
 
@@ -160,3 +166,7 @@ def test_llm_computer_agent_includes_selected_screenshots_as_image_content(tmp_p
         and str(part["image_url"].get("url", "")).startswith("data:image/jpeg;base64,")
         for part in image_parts
     )
+    first_url = str(image_parts[0]["image_url"]["url"])
+    encoded = first_url.split(",", 1)[1]
+    decoded_image = Image.open(io.BytesIO(base64.b64decode(encoded)))
+    assert decoded_image.size == (32, 24)
