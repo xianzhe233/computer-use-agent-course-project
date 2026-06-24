@@ -92,21 +92,15 @@ class DesktopBackend:
         response, status, pid = self.launch_app(name)
         if status != 0:
             raise RuntimeError(response)
+        if pid <= 0:
+            return f"Launching {name.title()} sent."
 
         launched = False
         target_window = None
         try:
-            if pid > 0:
-                target_window = _uia.WindowControl(ProcessId=pid)
-                if target_window.Exists(maxSearchSeconds=10):
-                    launched = True
-            if not launched:
-                for candidate in self._window_name_candidates(name):
-                    safe_name = re.escape(candidate)
-                    target_window = _uia.WindowControl(RegexName=f"(?i).*{safe_name}.*")
-                    if target_window.Exists(maxSearchSeconds=2):
-                        launched = True
-                        break
+            target_window = _uia.WindowControl(ProcessId=pid)
+            if target_window.Exists(maxSearchSeconds=10):
+                launched = True
         except Exception:
             launched = True
 
