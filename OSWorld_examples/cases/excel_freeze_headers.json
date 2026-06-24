@@ -1,0 +1,24 @@
+{
+  "case_id": "excel_freeze_headers",
+  "display_name": "Excel freeze A1:B1 headers",
+  "task_id": "4188d3a4-077d-46b7-9c86-23e1a036f6c1",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please edit the Microsoft Excel workbook at {TARGET_0}. Freeze the range A1:B1 so the headers stay visible while scrolling, save the workbook in place without renaming it, and finish only after the change is saved. If the workbook is not already open in Excel, open it first.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/4188d3a4-077d-46b7-9c86-23e1a036f6c1__Freeze_row_column.xlsx",
+      "target": "{USERPROFILE}\\Freeze_row_column.xlsx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [
+    {
+      "asset": "assets/reference/4188d3a4-077d-46b7-9c86-23e1a036f6c1__Freeze_row_column_gold.xlsx",
+      "label": "gold reference"
+    }
+  ],
+  "source_json": "assets/source_json/02_4188d3a4-077d-46b7-9c86-23e1a036f6c1.json",
+  "processes_to_close_before_prepare": ["EXCEL"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Open {TARGET_0} and compare with {REFERENCE_0}. Confirm A1:B1 header area remains visible while scrolling."
+}

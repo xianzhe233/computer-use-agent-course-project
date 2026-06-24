@@ -1,0 +1,30 @@
+{
+  "case_id": "word_export_pdf",
+  "display_name": "Word export current document to same-name PDF",
+  "task_id": "4bcb1253-a636-4df4-8cb0-a35c04dfef31",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please open the Microsoft Word document at {TARGET_0}. Export it to PDF, keep the same base file name, save the PDF at {EXPECTED_OUTPUT_0}, and finish only after the PDF exists. Do not rename the original Word document.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/4bcb1253-a636-4df4-8cb0-a35c04dfef31__View_Person_Organizational_Summary.docx",
+      "target": "{USERPROFILE}\\View_Person_Organizational_Summary.docx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [
+    {
+      "asset": "assets/reference/4bcb1253-a636-4df4-8cb0-a35c04dfef31__Constitution_Template_With_Guidelines_Gold.pdf",
+      "label": "reference pdf"
+    }
+  ],
+  "expected_outputs": [
+    {
+      "path": "{USERPROFILE}\\View_Person_Organizational_Summary.pdf",
+      "label": "same-name exported PDF"
+    }
+  ],
+  "source_json": "assets/source_json/07_4bcb1253-a636-4df4-8cb0-a35c04dfef31.json",
+  "processes_to_close_before_prepare": ["WINWORD"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Confirm {EXPECTED_OUTPUT_0} exists. Open it and compare with {REFERENCE_0}. Confirm the original Word file {TARGET_0} still exists."
+}

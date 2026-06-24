@@ -1,0 +1,24 @@
+{
+  "case_id": "ppt_strikethrough_todo",
+  "display_name": "PowerPoint strikethrough first two lines on page 5",
+  "task_id": "550ce7e7-747b-495f-b122-acdc4d0b8e54",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please edit the Microsoft PowerPoint presentation at {TARGET_0}. On slide/page 5, add strikethrough formatting to the first and second line only. Save the presentation in place without renaming it, and finish only after the change is saved. If the presentation is not already open in PowerPoint, open it first.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/550ce7e7-747b-495f-b122-acdc4d0b8e54__New_Club_Spring_2018_Training.pptx",
+      "target": "{USERPROFILE}\\New_Club_Spring_2018_Training.pptx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [
+    {
+      "asset": "assets/reference/550ce7e7-747b-495f-b122-acdc4d0b8e54__New_Club_Spring_2018_Training_Gold.pptx",
+      "label": "gold reference"
+    }
+  ],
+  "source_json": "assets/source_json/06_550ce7e7-747b-495f-b122-acdc4d0b8e54.json",
+  "processes_to_close_before_prepare": ["POWERPNT"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Open {TARGET_0} and compare with {REFERENCE_0}. Confirm slide/page 5 has strikethrough on only the first and second line."
+}

@@ -1,0 +1,443 @@
+{
+  "generated_from": "osworld_windows_recommended_tasks_with_links.xlsx",
+  "tasks_count": 10,
+  "asset_counts": {
+    "initial": 11,
+    "reference_gold": 13,
+    "reference_original": 1,
+    "external_target": 1,
+    "source_json": 10
+  },
+  "tasks": [
+    {
+      "rank": 1,
+      "task_id": "0b17a146-2934-46c7-8727-73ff6b6483e8",
+      "source_set": "examples_windows/word",
+      "apps": "Word",
+      "instruction": "Help me change the 2 in \"H2O\" to a subscript.",
+      "difficulty": "Easy",
+      "windows_suitability": "Native Windows Word task; no extra software.",
+      "why_include": "Minimal formatting task; good sanity check for precise text selection.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/word/0b17a146-2934-46c7-8727-73ff6b6483e8.json",
+      "source_json_local": "assets/source_json/01_0b17a146-2934-46c7-8727-73ff6b6483e8.json",
+      "reference_gold_urls": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/word/0b17a146-2934-46c7-8727-73ff6b6483e8/H2O_Factsheet_WA_Gold.docx",
+      "external_target_url": null,
+      "file_link_notes": "\u521d\u59cb\u6587\u4ef6\u4e3a Word \u6587\u6863\uff1bgold \u6587\u4ef6\u53ef\u7528\u4e8e\u4eba\u5de5\u6838\u5bf9\u3002",
+      "assets": [
+        {
+          "Rank": 1,
+          "Task ID": "0b17a146-2934-46c7-8727-73ff6b6483e8",
+          "File role": "initial",
+          "File / target": "H2O_Factsheet_WA.docx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/word/0b17a146-2934-46c7-8727-73ff6b6483e8/H2O_Factsheet_WA.docx",
+          "Default local path / dest": "C:\\Users\\User\\H2O_Factsheet_WA.docx",
+          "Notes": null,
+          "local_asset": "assets/initial/0b17a146-2934-46c7-8727-73ff6b6483e8__H2O_Factsheet_WA.docx"
+        },
+        {
+          "Rank": 1,
+          "Task ID": "0b17a146-2934-46c7-8727-73ff6b6483e8",
+          "File role": "reference/gold",
+          "File / target": "H2O_Factsheet_WA_Gold.docx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/word/0b17a146-2934-46c7-8727-73ff6b6483e8/H2O_Factsheet_WA_Gold.docx",
+          "Default local path / dest": "H2O_Factsheet_WA_Gold.docx",
+          "Notes": null,
+          "local_asset": "assets/reference/0b17a146-2934-46c7-8727-73ff6b6483e8__H2O_Factsheet_WA_Gold.docx"
+        }
+      ]
+    },
+    {
+      "rank": 2,
+      "task_id": "4188d3a4-077d-46b7-9c86-23e1a036f6c1",
+      "source_set": "examples_windows/excel",
+      "apps": "Excel",
+      "instruction": "Help me freeze the range A1:B1 on this sheet to keep the headers always visible",
+      "difficulty": "Easy",
+      "windows_suitability": "Native Windows Excel task; no extra software.",
+      "why_include": "Tests menu/ribbon navigation and sheet viewport operations.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/excel/4188d3a4-077d-46b7-9c86-23e1a036f6c1.json",
+      "source_json_local": "assets/source_json/02_4188d3a4-077d-46b7-9c86-23e1a036f6c1.json",
+      "reference_gold_urls": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/4188d3a4-077d-46b7-9c86-23e1a036f6c1/Freeze_row_column2_gold.xlsx",
+      "external_target_url": null,
+      "file_link_notes": "JSON \u4e0b\u8f7d\u540d\u4e3a Freeze_row_column2.xlsx\uff0c\u4f46\u672c\u5730\u6253\u5f00\u540d\u4e3a Freeze_row_column.xlsx\u3002",
+      "assets": [
+        {
+          "Rank": 2,
+          "Task ID": "4188d3a4-077d-46b7-9c86-23e1a036f6c1",
+          "File role": "initial",
+          "File / target": "Freeze_row_column2.xlsx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/4188d3a4-077d-46b7-9c86-23e1a036f6c1/Freeze_row_column2.xlsx",
+          "Default local path / dest": "c:\\users\\User\\Freeze_row_column.xlsx",
+          "Notes": null,
+          "local_asset": "assets/initial/4188d3a4-077d-46b7-9c86-23e1a036f6c1__Freeze_row_column.xlsx"
+        },
+        {
+          "Rank": 2,
+          "Task ID": "4188d3a4-077d-46b7-9c86-23e1a036f6c1",
+          "File role": "reference/gold",
+          "File / target": "Freeze_row_column2_gold.xlsx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/4188d3a4-077d-46b7-9c86-23e1a036f6c1/Freeze_row_column2_gold.xlsx",
+          "Default local path / dest": "Freeze_row_column_gold.xlsx",
+          "Notes": null,
+          "local_asset": "assets/reference/4188d3a4-077d-46b7-9c86-23e1a036f6c1__Freeze_row_column_gold.xlsx"
+        }
+      ]
+    },
+    {
+      "rank": 3,
+      "task_id": "3b27600c-3668-4abd-8f84-7bcdebbccbdb",
+      "source_set": "examples_windows/ppt",
+      "apps": "PowerPoint",
+      "instruction": "Please make the background blue on all my slides. I was stuck by finding the entrance to do that for a while...",
+      "difficulty": "Easy",
+      "windows_suitability": "Native Windows PowerPoint task; no extra software.",
+      "why_include": "Clear visual target; useful for evaluating presentation-wide formatting.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/ppt/3b27600c-3668-4abd-8f84-7bcdebbccbdb.json",
+      "source_json_local": "assets/source_json/03_3b27600c-3668-4abd-8f84-7bcdebbccbdb.json",
+      "reference_gold_urls": "N/A\uff1b\u8be5\u4efb\u52a1\u6309\u84dd\u8272\u80cc\u666f\u89c4\u5219\u8bc4\u4f30\uff0c\u4e0d\u9700\u8981 gold \u6587\u4ef6",
+      "external_target_url": null,
+      "file_link_notes": "\u53ea\u9700\u8981\u521d\u59cb PPT\uff1b\u8bc4\u4f30\u76ee\u6807\u662f\u6240\u6709\u5e7b\u706f\u7247\u80cc\u666f RGB=(0,0,255)\u3002",
+      "assets": [
+        {
+          "Rank": 3,
+          "Task ID": "3b27600c-3668-4abd-8f84-7bcdebbccbdb",
+          "File role": "initial",
+          "File / target": "lec17-gui-events.pptx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/ppt/3b27600c-3668-4abd-8f84-7bcdebbccbdb/lec17-gui-events.pptx",
+          "Default local path / dest": "C:\\Users\\User\\lec17-gui-events.pptx",
+          "Notes": null,
+          "local_asset": "assets/initial/3b27600c-3668-4abd-8f84-7bcdebbccbdb__lec17-gui-events.pptx"
+        }
+      ]
+    },
+    {
+      "rank": 4,
+      "task_id": "51b11269-2ca8-4b2a-9163-f21758420e78",
+      "source_set": "examples_windows/excel",
+      "apps": "Excel",
+      "instruction": "Could you help me to sort the records according to the amounts ascendingly?",
+      "difficulty": "Medium",
+      "windows_suitability": "Native Windows Excel task; no extra software.",
+      "why_include": "Common spreadsheet operation; checks selecting data region and sort semantics.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/excel/51b11269-2ca8-4b2a-9163-f21758420e78.json",
+      "source_json_local": "assets/source_json/04_51b11269-2ca8-4b2a-9163-f21758420e78.json",
+      "reference_gold_urls": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/51b11269-2ca8-4b2a-9163-f21758420e78/Arrang_Value_min_to_max_gold.xlsx",
+      "external_target_url": null,
+      "file_link_notes": "\u521d\u59cb Excel + gold Excel\u3002",
+      "assets": [
+        {
+          "Rank": 4,
+          "Task ID": "51b11269-2ca8-4b2a-9163-f21758420e78",
+          "File role": "initial",
+          "File / target": "Arrang_Value_min_to_max.xlsx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/51b11269-2ca8-4b2a-9163-f21758420e78/Arrang_Value_min_to_max.xlsx",
+          "Default local path / dest": "c:\\users\\User\\Arrang_Value_min_to_max.xlsx",
+          "Notes": null,
+          "local_asset": "assets/initial/51b11269-2ca8-4b2a-9163-f21758420e78__Arrang_Value_min_to_max.xlsx"
+        },
+        {
+          "Rank": 4,
+          "Task ID": "51b11269-2ca8-4b2a-9163-f21758420e78",
+          "File role": "reference/gold",
+          "File / target": "Arrang_Value_min_to_max_gold.xlsx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/51b11269-2ca8-4b2a-9163-f21758420e78/Arrang_Value_min_to_max_gold.xlsx",
+          "Default local path / dest": "Arrang_Value_min_to_max_gold.xlsx",
+          "Notes": null,
+          "local_asset": "assets/reference/51b11269-2ca8-4b2a-9163-f21758420e78__Arrang_Value_min_to_max_gold.xlsx"
+        }
+      ]
+    },
+    {
+      "rank": 5,
+      "task_id": "8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14",
+      "source_set": "examples_windows/excel",
+      "apps": "Excel",
+      "instruction": "Given a partial calendar, please highlight all the weekends (Satureday & Sunday) by setting the cell background as red (#ff0000).",
+      "difficulty": "Medium",
+      "windows_suitability": "Native Windows Excel task; no extra software.",
+      "why_include": "Requires interpreting calendar structure and applying repeated formatting.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/excel/8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14.json",
+      "source_json_local": "assets/source_json/05_8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14.json",
+      "reference_gold_urls": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14/Calendar_Highlight_Weekend_Days_gold.xlsx",
+      "external_target_url": null,
+      "file_link_notes": "\u521d\u59cb Excel + gold Excel\uff1b\u4efb\u52a1\u539f\u6587\u628a Saturday \u62fc\u6210 Satureday\u3002",
+      "assets": [
+        {
+          "Rank": 5,
+          "Task ID": "8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14",
+          "File role": "initial",
+          "File / target": "Calendar_Highlight_Weekend_Days.xlsx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14/Calendar_Highlight_Weekend_Days.xlsx",
+          "Default local path / dest": "C:\\Users\\User\\Calendar_Highlight_Weekend_Days.xlsx",
+          "Notes": null,
+          "local_asset": "assets/initial/8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14__Calendar_Highlight_Weekend_Days.xlsx"
+        },
+        {
+          "Rank": 5,
+          "Task ID": "8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14",
+          "File role": "reference/gold",
+          "File / target": "Calendar_Highlight_Weekend_Days_gold.xlsx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/excel/8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14/Calendar_Highlight_Weekend_Days_gold.xlsx",
+          "Default local path / dest": "Calendar_Highlight_Weekend_Days_gold.xlsx",
+          "Notes": null,
+          "local_asset": "assets/reference/8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14__Calendar_Highlight_Weekend_Days_gold.xlsx"
+        }
+      ]
+    },
+    {
+      "rank": 6,
+      "task_id": "550ce7e7-747b-495f-b122-acdc4d0b8e54",
+      "source_set": "examples_windows/ppt",
+      "apps": "PowerPoint",
+      "instruction": "I am checking our soccer club's to-do list for the last semester and adding strike-through sign on the line we have already accomplished. Could you help me add a strike-through on the first and second line on Page 5?",
+      "difficulty": "Medium",
+      "windows_suitability": "Native Windows PowerPoint task; no extra software.",
+      "why_include": "Requires slide navigation plus local text formatting on a specific page.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/ppt/550ce7e7-747b-495f-b122-acdc4d0b8e54.json",
+      "source_json_local": "assets/source_json/06_550ce7e7-747b-495f-b122-acdc4d0b8e54.json",
+      "reference_gold_urls": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/ppt/550ce7e7-747b-495f-b122-acdc4d0b8e54/New_Club_Spring_2018_Training_Gold.pptx",
+      "external_target_url": null,
+      "file_link_notes": "\u521d\u59cb PPT + gold PPT\u3002",
+      "assets": [
+        {
+          "Rank": 6,
+          "Task ID": "550ce7e7-747b-495f-b122-acdc4d0b8e54",
+          "File role": "initial",
+          "File / target": "New_Club_Spring_2018_Training.pptx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/ppt/550ce7e7-747b-495f-b122-acdc4d0b8e54/New_Club_Spring_2018_Training.pptx",
+          "Default local path / dest": "C:\\Users\\User\\New_Club_Spring_2018_Training.pptx",
+          "Notes": null,
+          "local_asset": "assets/initial/550ce7e7-747b-495f-b122-acdc4d0b8e54__New_Club_Spring_2018_Training.pptx"
+        },
+        {
+          "Rank": 6,
+          "Task ID": "550ce7e7-747b-495f-b122-acdc4d0b8e54",
+          "File role": "reference/gold",
+          "File / target": "New_Club_Spring_2018_Training_Gold.pptx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/ppt/550ce7e7-747b-495f-b122-acdc4d0b8e54/New_Club_Spring_2018_Training_Gold.pptx",
+          "Default local path / dest": "New_Club_Spring_2018_Training_Gold.pptx",
+          "Notes": null,
+          "local_asset": "assets/reference/550ce7e7-747b-495f-b122-acdc4d0b8e54__New_Club_Spring_2018_Training_Gold.pptx"
+        }
+      ]
+    },
+    {
+      "rank": 7,
+      "task_id": "4bcb1253-a636-4df4-8cb0-a35c04dfef31",
+      "source_set": "examples_windows/word",
+      "apps": "Word",
+      "instruction": "Export the current document into PDF, keep the file name",
+      "difficulty": "Medium",
+      "windows_suitability": "Native Windows Word task; PDF export is built into Word.",
+      "why_include": "Tests file export/save-as workflow rather than only in-document editing.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/word/4bcb1253-a636-4df4-8cb0-a35c04dfef31.json",
+      "source_json_local": "assets/source_json/07_4bcb1253-a636-4df4-8cb0-a35c04dfef31.json",
+      "reference_gold_urls": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/word/4bcb1253-a636-4df4-8cb0-a35c04dfef31/View_Person_Organizational_Summary.pdf",
+      "external_target_url": null,
+      "file_link_notes": "\u521d\u59cb Word\uff1b\u76ee\u6807\u8f93\u51fa\u662f\u540c\u540d PDF\u3002",
+      "assets": [
+        {
+          "Rank": 7,
+          "Task ID": "4bcb1253-a636-4df4-8cb0-a35c04dfef31",
+          "File role": "initial",
+          "File / target": "View_Person_Organizational_Summary.docx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/word/4bcb1253-a636-4df4-8cb0-a35c04dfef31/View_Person_Organizational_Summary.docx",
+          "Default local path / dest": "C:\\Users\\User\\View_Person_Organizational_Summary.docx",
+          "Notes": null,
+          "local_asset": "assets/initial/4bcb1253-a636-4df4-8cb0-a35c04dfef31__View_Person_Organizational_Summary.docx"
+        },
+        {
+          "Rank": 7,
+          "Task ID": "4bcb1253-a636-4df4-8cb0-a35c04dfef31",
+          "File role": "reference/gold",
+          "File / target": "View_Person_Organizational_Summary.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/word/4bcb1253-a636-4df4-8cb0-a35c04dfef31/View_Person_Organizational_Summary.pdf",
+          "Default local path / dest": "Constitution_Template_With_Guidelines_Gold.pdf",
+          "Notes": "Expected/reference PDF in evaluator.",
+          "local_asset": "assets/reference/4bcb1253-a636-4df4-8cb0-a35c04dfef31__Constitution_Template_With_Guidelines_Gold.pdf"
+        }
+      ]
+    },
+    {
+      "rank": 8,
+      "task_id": "5d901039-a89c-4bfb-967b-bf66f4df075e",
+      "source_set": "examples_windows/ppt",
+      "apps": "PowerPoint",
+      "instruction": "I want to turn the rectangular image of Columbus on the first page into a cover page. Could you help me stretch this image to fill the entire page, keeping its proportion and centering the image?",
+      "difficulty": "Hard",
+      "windows_suitability": "Native Windows PowerPoint task; no extra software.",
+      "why_include": "Visually interesting; evaluates image manipulation, proportions, and centering.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/ppt/5d901039-a89c-4bfb-967b-bf66f4df075e.json",
+      "source_json_local": "assets/source_json/08_5d901039-a89c-4bfb-967b-bf66f4df075e.json",
+      "reference_gold_urls": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/ppt/5d901039-a89c-4bfb-967b-bf66f4df075e/CPD_Background_Investigation_Process.pptx",
+      "external_target_url": null,
+      "file_link_notes": "\u521d\u59cb PPT \u672c\u8eab\u4e5f\u4f5c\u4e3a evaluator \u7684 original reference\u3002",
+      "assets": [
+        {
+          "Rank": 8,
+          "Task ID": "5d901039-a89c-4bfb-967b-bf66f4df075e",
+          "File role": "initial",
+          "File / target": "CPD_Background_Investigation_Process.pptx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/ppt/5d901039-a89c-4bfb-967b-bf66f4df075e/CPD_Background_Investigation_Process.pptx",
+          "Default local path / dest": "C:\\Users\\User\\CPD_Background_Investigation_Process.pptx",
+          "Notes": null,
+          "local_asset": "assets/initial/5d901039-a89c-4bfb-967b-bf66f4df075e__CPD_Background_Investigation_Process.pptx"
+        },
+        {
+          "Rank": 8,
+          "Task ID": "5d901039-a89c-4bfb-967b-bf66f4df075e",
+          "File role": "reference/original",
+          "File / target": "CPD_Background_Investigation_Process.pptx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/ppt/5d901039-a89c-4bfb-967b-bf66f4df075e/CPD_Background_Investigation_Process.pptx",
+          "Default local path / dest": "CPD_Background_Investigation_Process_Original.pptx",
+          "Notes": "Same file URL is used as original reference.",
+          "local_asset": "assets/reference/5d901039-a89c-4bfb-967b-bf66f4df075e__CPD_Background_Investigation_Process_Original.pptx"
+        }
+      ]
+    },
+    {
+      "rank": 9,
+      "task_id": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+      "source_set": "examples_windows/multi_app",
+      "apps": "Excel + PDF viewer/editor",
+      "instruction": "Transfer the data from our \"Employee Performance Evaluation Summary\" Excel sheet into standardized PDF evaluation forms; name each PDF according to the employee name; use \"\u221a\" as the mark.",
+      "difficulty": "Hard",
+      "windows_suitability": "Windows-compatible if PDF form filling is available via Edge/Adobe; may need PDF form support.",
+      "why_include": "Multi-document data transfer; strong test of reading, mapping, and repeated output.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples_windows/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef.json",
+      "source_json_local": "assets/source_json/09_185f29bd-5da0-40a6-b69c-ba7f4e0324ef.json",
+      "reference_gold_urls": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Alex%20Lee.pdf\nhttps://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/David%20Wilson.pdf\nhttps://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Emily%20Johnson.pdf\nhttps://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/John%20Doe.pdf\nhttps://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Linda%20Green.pdf\nhttps://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Michael%20Brown.pdf\nhttps://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Sophia%20Carter.pdf",
+      "external_target_url": null,
+      "file_link_notes": "\u9700\u8981\u4e24\u4e2a\u521d\u59cb\u6587\u4ef6\uff1aExcel \u6570\u636e\u8868\u548c PDF \u6a21\u677f\uff1bgold/reference \u662f 7 \u4efd PDF\u3002",
+      "assets": [
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "initial",
+          "File / target": "Employee Performance Evaluation Summary.xlsx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Employee%20Performance%20Evaluation%20Summary.xlsx",
+          "Default local path / dest": "C:\\Users\\User\\Desktop\\Employee Performance Evaluation Summary.xlsx",
+          "Notes": null,
+          "local_asset": "assets/initial/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Employee Performance Evaluation Summary.xlsx"
+        },
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "initial",
+          "File / target": "review_template.pdf / IC-Simple-Performance-Review-Template-10796_PDF.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/IC-Simple-Performance-Review-Template-10796_PDF.pdf",
+          "Default local path / dest": "C:\\Users\\User\\Desktop\\review_template.pdf",
+          "Notes": null,
+          "local_asset": "assets/initial/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__review_template.pdf"
+        },
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "reference/gold",
+          "File / target": "Alex Lee.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Alex%20Lee.pdf",
+          "Default local path / dest": "Alex Lee_Gold.pdf",
+          "Notes": null,
+          "local_asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Alex Lee_Gold.pdf"
+        },
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "reference/gold",
+          "File / target": "David Wilson.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/David%20Wilson.pdf",
+          "Default local path / dest": "David Wilson_Gold.pdf",
+          "Notes": null,
+          "local_asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__David Wilson_Gold.pdf"
+        },
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "reference/gold",
+          "File / target": "Emily Johnson.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Emily%20Johnson.pdf",
+          "Default local path / dest": "Emily Johnson_Gold.pdf",
+          "Notes": null,
+          "local_asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Emily Johnson_Gold.pdf"
+        },
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "reference/gold",
+          "File / target": "John Doe.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/John%20Doe.pdf",
+          "Default local path / dest": "John Doe_Gold.pdf",
+          "Notes": null,
+          "local_asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__John Doe_Gold.pdf"
+        },
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "reference/gold",
+          "File / target": "Linda Green.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Linda%20Green.pdf",
+          "Default local path / dest": "Linda Green_Gold.pdf",
+          "Notes": null,
+          "local_asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Linda Green_Gold.pdf"
+        },
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "reference/gold",
+          "File / target": "Michael Brown.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Michael%20Brown.pdf",
+          "Default local path / dest": "Michael Brown_Gold.pdf",
+          "Notes": null,
+          "local_asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Michael Brown_Gold.pdf"
+        },
+        {
+          "Rank": 9,
+          "Task ID": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+          "File role": "reference/gold",
+          "File / target": "Sophia Carter.pdf",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/windows_osworld_file_cache/resolve/main/multi_app/185f29bd-5da0-40a6-b69c-ba7f4e0324ef/Sophia%20Carter.pdf",
+          "Default local path / dest": "Sophia Carter_Gold.pdf",
+          "Notes": null,
+          "local_asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Sophia Carter_Gold.pdf"
+        }
+      ]
+    },
+    {
+      "rank": 10,
+      "task_id": "5990457f-2adb-467b-a4af-5c857c92d762",
+      "source_set": "examples/multi_apps",
+      "apps": "Chrome + Excel",
+      "instruction": "Append one entry of AI researcher Yann LeCun from Google Scholar into an existing table researchers.xlsx.",
+      "difficulty": "Hard",
+      "windows_suitability": "Not in examples_windows, but Windows-compatible: replace LibreOffice Calc with Excel; needs browser access to Google Scholar.",
+      "why_include": "Required by you; tests web search/extraction plus spreadsheet append.",
+      "source_file_url": "https://github.com/xlang-ai/OSWorld/blob/main/evaluation_examples/examples/multi_apps/5990457f-2adb-467b-a4af-5c857c92d762.json",
+      "source_json_local": "assets/source_json/10_5990457f-2adb-467b-a4af-5c857c92d762.json",
+      "reference_gold_urls": "N/A\uff1b\u7ed3\u679c\u6765\u81ea Google Scholar \u9875\u9762\u5b9e\u65f6/\u5907\u4efd\u4fe1\u606f\uff0c\u4e0d\u63d0\u4f9b gold \u6587\u4ef6",
+      "external_target_url": "https://scholar.google.com/citations?user=WLN3QrAAAAAJ&hl=en",
+      "file_link_notes": "\u539f\u4efb\u52a1\u662f Ubuntu + LibreOffice Calc\uff1bWindows \u6d4b\u8bd5\u65f6\u53ef\u7528 Chrome + Excel\uff0c\u4e0b\u8f7d researchers.xlsx \u540e\u624b\u52a8\u653e\u684c\u9762\u3002",
+      "assets": [
+        {
+          "Rank": 10,
+          "Task ID": "5990457f-2adb-467b-a4af-5c857c92d762",
+          "File role": "initial",
+          "File / target": "researchers.xlsx",
+          "Download or target URL": "https://huggingface.co/datasets/xlangai/ubuntu_osworld_file_cache/resolve/main/multi_apps/5990457f-2adb-467b-a4af-5c857c92d762/researchers.xlsx",
+          "Default local path / dest": "/home/user/Desktop/researchers.xlsx",
+          "Notes": "Use same file on Windows; place on Desktop and open with Excel.",
+          "local_asset": "assets/initial/5990457f-2adb-467b-a4af-5c857c92d762__researchers.xlsx"
+        },
+        {
+          "Rank": 10,
+          "Task ID": "5990457f-2adb-467b-a4af-5c857c92d762",
+          "File role": "external target",
+          "File / target": "Yann LeCun Google Scholar profile",
+          "Download or target URL": "https://scholar.google.com/citations?user=WLN3QrAAAAAJ&hl=en",
+          "Default local path / dest": null,
+          "Notes": "Used by evaluator to read name/citations/h-index/i10-index/top paper/link.",
+          "local_asset": "assets/external_targets/5990457f-2adb-467b-a4af-5c857c92d762__Yann_LeCun_Google_Scholar_profile.url"
+        }
+      ]
+    }
+  ]
+}

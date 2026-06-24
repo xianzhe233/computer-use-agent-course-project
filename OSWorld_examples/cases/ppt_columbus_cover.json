@@ -1,0 +1,24 @@
+{
+  "case_id": "ppt_columbus_cover",
+  "display_name": "PowerPoint make Columbus image cover slide",
+  "task_id": "5d901039-a89c-4bfb-967b-bf66f4df075e",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please edit the Microsoft PowerPoint presentation at {TARGET_0}. On the first page, stretch the rectangular image of Columbus to fill the entire slide as a cover page, keep the image proportion, center the image, save the presentation in place without renaming it, and finish only after the change is saved. If the presentation is not already open in PowerPoint, open it first.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/5d901039-a89c-4bfb-967b-bf66f4df075e__CPD_Background_Investigation_Process.pptx",
+      "target": "{USERPROFILE}\\CPD_Background_Investigation_Process.pptx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [
+    {
+      "asset": "assets/reference/5d901039-a89c-4bfb-967b-bf66f4df075e__CPD_Background_Investigation_Process_Original.pptx",
+      "label": "original reference"
+    }
+  ],
+  "source_json": "assets/source_json/08_5d901039-a89c-4bfb-967b-bf66f4df075e.json",
+  "processes_to_close_before_prepare": ["POWERPNT"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Open {TARGET_0}. Compare against {REFERENCE_0} if needed. Confirm the Columbus image on slide/page 1 fills the whole slide, keeps its proportion, and is centered."
+}

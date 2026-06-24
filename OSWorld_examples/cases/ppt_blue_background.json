@@ -1,0 +1,19 @@
+{
+  "case_id": "ppt_blue_background",
+  "display_name": "PowerPoint all slides blue background",
+  "task_id": "3b27600c-3668-4abd-8f84-7bcdebbccbdb",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please edit the Microsoft PowerPoint presentation at {TARGET_0}. Make the background blue on all slides, save the presentation in place without renaming it, and finish only after the change is saved. If the presentation is not already open in PowerPoint, open it first.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/3b27600c-3668-4abd-8f84-7bcdebbccbdb__lec17-gui-events.pptx",
+      "target": "{USERPROFILE}\\lec17-gui-events.pptx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [],
+  "source_json": "assets/source_json/03_3b27600c-3668-4abd-8f84-7bcdebbccbdb.json",
+  "processes_to_close_before_prepare": ["POWERPNT"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Open {TARGET_0}. Confirm every slide has a blue background. This task has no gold file; visually inspect all slides."
+}

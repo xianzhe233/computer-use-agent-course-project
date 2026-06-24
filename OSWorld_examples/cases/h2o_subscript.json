@@ -1,0 +1,24 @@
+{
+  "case_id": "h2o_subscript",
+  "display_name": "H2O Word subscript",
+  "task_id": "0b17a146-2934-46c7-8727-73ff6b6483e8",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please edit the Microsoft Word document at {TARGET_0}. Change the 2 in H2O to subscript, save the original file in place without renaming it, and finish only after the change is saved. If the document is not already open in Word, open it first.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/0b17a146-2934-46c7-8727-73ff6b6483e8__H2O_Factsheet_WA.docx",
+      "target": "{USERPROFILE}\\H2O_Factsheet_WA.docx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [
+    {
+      "asset": "assets/reference/0b17a146-2934-46c7-8727-73ff6b6483e8__H2O_Factsheet_WA_Gold.docx",
+      "label": "gold reference"
+    }
+  ],
+  "source_json": "assets/source_json/01_0b17a146-2934-46c7-8727-73ff6b6483e8.json",
+  "processes_to_close_before_prepare": ["WINWORD"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Open {TARGET_0} and compare it with {REFERENCE_0}. Confirm that the 2 in H2O is subscript and the file name remains unchanged."
+}

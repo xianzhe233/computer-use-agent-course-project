@@ -1,0 +1,24 @@
+{
+  "case_id": "excel_sort_amounts",
+  "display_name": "Excel sort records by amount ascending",
+  "task_id": "51b11269-2ca8-4b2a-9163-f21758420e78",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please edit the Microsoft Excel workbook at {TARGET_0}. Sort the records according to the amounts in ascending order, save the workbook in place without renaming it, and finish only after the change is saved. If the workbook is not already open in Excel, open it first.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/51b11269-2ca8-4b2a-9163-f21758420e78__Arrang_Value_min_to_max.xlsx",
+      "target": "{USERPROFILE}\\Arrang_Value_min_to_max.xlsx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [
+    {
+      "asset": "assets/reference/51b11269-2ca8-4b2a-9163-f21758420e78__Arrang_Value_min_to_max_gold.xlsx",
+      "label": "gold reference"
+    }
+  ],
+  "source_json": "assets/source_json/04_51b11269-2ca8-4b2a-9163-f21758420e78.json",
+  "processes_to_close_before_prepare": ["EXCEL"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Open {TARGET_0} and compare with {REFERENCE_0}. Confirm the records are sorted by amount ascending."
+}

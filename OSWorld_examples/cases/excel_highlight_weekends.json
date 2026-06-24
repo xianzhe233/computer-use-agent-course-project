@@ -1,0 +1,24 @@
+{
+  "case_id": "excel_highlight_weekends",
+  "display_name": "Excel highlight weekend days red",
+  "task_id": "8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please edit the Microsoft Excel workbook at {TARGET_0}. In the partial calendar, highlight all weekend days, Saturday and Sunday, by setting the cell background color to red (#ff0000). Save the workbook in place without renaming it, and finish only after the change is saved. If the workbook is not already open in Excel, open it first.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14__Calendar_Highlight_Weekend_Days.xlsx",
+      "target": "{USERPROFILE}\\Calendar_Highlight_Weekend_Days.xlsx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [
+    {
+      "asset": "assets/reference/8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14__Calendar_Highlight_Weekend_Days_gold.xlsx",
+      "label": "gold reference"
+    }
+  ],
+  "source_json": "assets/source_json/05_8b1ce5f2-59d2-4dcc-b0b0-666a714b9a14.json",
+  "processes_to_close_before_prepare": ["EXCEL"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Open {TARGET_0} and compare with {REFERENCE_0}. Confirm all Saturday and Sunday cells have red background (#ff0000)."
+}

@@ -1,0 +1,41 @@
+{
+  "case_id": "multiapp_performance_pdfs",
+  "display_name": "Excel data to PDF performance review forms",
+  "task_id": "185f29bd-5da0-40a6-b69c-ba7f4e0324ef",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please use the Excel file at {TARGET_0} and the PDF review template at {TARGET_1}. Transfer the data from the Employee Performance Evaluation Summary Excel sheet into standardized PDF evaluation forms. Name each output PDF according to the employee name and use the mark \"√\" where needed. Save the output PDFs on the Desktop. Finish only after all employee PDFs have been created.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Employee Performance Evaluation Summary.xlsx",
+      "target": "{DESKTOP}\\Employee Performance Evaluation Summary.xlsx",
+      "open_after_prepare": true
+    },
+    {
+      "asset": "assets/initial/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__review_template.pdf",
+      "target": "{DESKTOP}\\review_template.pdf",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [
+    {"asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Alex Lee_Gold.pdf", "label": "Alex Lee gold PDF"},
+    {"asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__David Wilson_Gold.pdf", "label": "David Wilson gold PDF"},
+    {"asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Emily Johnson_Gold.pdf", "label": "Emily Johnson gold PDF"},
+    {"asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__John Doe_Gold.pdf", "label": "John Doe gold PDF"},
+    {"asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Linda Green_Gold.pdf", "label": "Linda Green gold PDF"},
+    {"asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Michael Brown_Gold.pdf", "label": "Michael Brown gold PDF"},
+    {"asset": "assets/reference/185f29bd-5da0-40a6-b69c-ba7f4e0324ef__Sophia Carter_Gold.pdf", "label": "Sophia Carter gold PDF"}
+  ],
+  "expected_outputs": [
+    {"path": "{DESKTOP}\\Alex Lee.pdf", "label": "Alex Lee output"},
+    {"path": "{DESKTOP}\\David Wilson.pdf", "label": "David Wilson output"},
+    {"path": "{DESKTOP}\\Emily Johnson.pdf", "label": "Emily Johnson output"},
+    {"path": "{DESKTOP}\\John Doe.pdf", "label": "John Doe output"},
+    {"path": "{DESKTOP}\\Linda Green.pdf", "label": "Linda Green output"},
+    {"path": "{DESKTOP}\\Michael Brown.pdf", "label": "Michael Brown output"},
+    {"path": "{DESKTOP}\\Sophia Carter.pdf", "label": "Sophia Carter output"}
+  ],
+  "source_json": "assets/source_json/09_185f29bd-5da0-40a6-b69c-ba7f4e0324ef.json",
+  "processes_to_close_before_prepare": ["EXCEL", "AcroRd32"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Confirm all expected PDFs exist on Desktop: {EXPECTED_OUTPUT_0}, {EXPECTED_OUTPUT_1}, {EXPECTED_OUTPUT_2}, {EXPECTED_OUTPUT_3}, {EXPECTED_OUTPUT_4}, {EXPECTED_OUTPUT_5}, {EXPECTED_OUTPUT_6}. Compare them with the seven reference PDFs printed above."
+}

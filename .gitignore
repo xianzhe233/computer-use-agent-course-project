@@ -7,4 +7,6 @@ config/models.local.json
 __pycache__/
 *.pyc
 runs/
+/researchers.xlsx
+/add_lecun*.py
 课程指导书-发布-26/

@@ -1,0 +1,25 @@
+{
+  "case_id": "scholar_yann_lecun_researcher",
+  "display_name": "Chrome and Excel append Yann LeCun researcher entry",
+  "task_id": "5990457f-2adb-467b-a4af-5c857c92d762",
+  "agent_mode": "autonomous",
+  "agent_task_template": "Please use the Excel workbook at {TARGET_0} and the Google Scholar profile at {EXTERNAL_0}. Append one entry for AI researcher Yann LeCun into the existing researchers table, using information from the profile. Save the workbook in place without renaming it, and finish only after the new row is saved.",
+  "initial_files": [
+    {
+      "asset": "assets/initial/5990457f-2adb-467b-a4af-5c857c92d762__researchers.xlsx",
+      "target": "{DESKTOP}\\researchers.xlsx",
+      "open_after_prepare": true
+    }
+  ],
+  "reference_files": [],
+  "external_targets": [
+    {
+      "url": "https://scholar.google.com/citations?user=WLN3QrAAAAAJ&hl=en",
+      "label": "Yann LeCun Google Scholar profile"
+    }
+  ],
+  "source_json": "assets/source_json/10_5990457f-2adb-467b-a4af-5c857c92d762.json",
+  "processes_to_close_before_prepare": ["EXCEL"],
+  "app_launch_wait_seconds": 5,
+  "manual_check": "Open {TARGET_0}. Confirm a row for Yann LeCun was appended using data from {EXTERNAL_0}. There is no gold file for this live web task."
+}
