@@ -518,6 +518,69 @@ def test_autonomous_computer_runtime_rejects_once_then_returns_to_main_loop(tmp_
     assert review_one["suggested_next_steps"] == ["执行 Get-Content demo.txt 并再次 finish_request"]
 
 
+def test_open_and_switch_app_support_discovery_first_turn(tmp_path: Path) -> None:
+    screenshot_backend = FakeScreenshotBackend()
+    gui_backend = FakeGuiBackend()
+    command_backend = SequenceBackend(
+        [
+            CommandResult(
+                command="discover apps",
+                stdout="Name AppID\n记事本 Microsoft.WindowsNotepad_8wekyb3d8bbwe!App\n",
+                stderr="",
+                exit_code=0,
+                success=True,
+                duration_ms=10,
+            ),
+            CommandResult(
+                command="discover windows",
+                stdout="ProcessName MainWindowTitle\nCode agent.py - Visual Studio Code\nmsedge Assistant - Microsoft Edge\n",
+                stderr="",
+                exit_code=0,
+                success=True,
+                duration_ms=10,
+            ),
+        ]
+    )
+    agent = ScriptedComputerAgent(
+        [
+            TerminalAgentDecision(kind="tool_call", tool_name="open_app", tool_args={}),
+            TerminalAgentDecision(kind="tool_call", tool_name="switch_app", tool_args={"name": None}),
+            TerminalAgentDecision(kind="tool_call", tool_name="open_app", tool_args={"name": "记事本"}),
+            TerminalAgentDecision(kind="tool_call", tool_name="switch_app", tool_args={"name": "Visual Studio Code"}),
+            TerminalAgentDecision(
+                kind="finish_request",
+                completion_claim="已完成两步候选发现和执行",
+                supporting_evidence=["command:cmd_0001", "command:cmd_0002", "screenshot:ss_0003"],
+            ),
+        ]
+    )
+    runtime = AutonomousComputerRuntime(
+        workspace=tmp_path,
+        runs_root=tmp_path / "runs",
+        command_backend=command_backend,
+        screenshot_backend=screenshot_backend,
+        gui_backend=gui_backend,
+        agent=agent,
+        examiner_agent=_accept_examiner("已完成两步候选发现和执行"),
+        max_steps=8,
+    )
+
+    state = runtime.run("先发现应用和窗口，再选择执行")
+
+    assert state.run.status == "success"
+    assert command_backend.calls[0][0].startswith("Get-StartApps")
+    assert "MainWindowTitle" in command_backend.calls[1][0]
+    assert gui_backend.calls == [
+        ("open_app", ("记事本",), {}),
+        ("switch_app", ("Visual Studio Code",), {}),
+    ]
+    assert state.metrics.command_count == 2
+    trace = (tmp_path / "runs" / state.run.run_id / "trace.jsonl").read_text(encoding="utf-8")
+    assert "start_menu_apps" in trace
+    assert "current_windows" in trace
+
+
+
 def test_autonomous_computer_runtime_supports_new_gui_tools(tmp_path: Path) -> None:
     screenshot_backend = FakeScreenshotBackend()
     gui_backend = FakeGuiBackend()

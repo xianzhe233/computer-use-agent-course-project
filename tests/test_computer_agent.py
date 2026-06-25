@@ -112,11 +112,15 @@ def test_resolve_langchain_tools_adds_finish_request() -> None:
 
 
 def test_langchain_tool_descriptions_guide_optional_parameters() -> None:
-    tools = {tool.name: tool for tool in resolve_langchain_tools(["view_screenshot", "click", "type_text", "open_app"])}
+    tools = {
+        tool.name: tool
+        for tool in resolve_langchain_tools(["view_screenshot", "click", "type_text", "open_app", "switch_app"])
+    }
 
     assert "screenshot_ids" in tools["view_screenshot"].description
     assert "target_query" in tools["click"].description
-    assert "Get-StartApps" in tools["open_app"].description
+    assert "First call open_app without name" in tools["open_app"].description
+    assert "First call switch_app without name" in tools["switch_app"].description
     assert "completion evidence" in tools["finish_request"].description
 
     click_fields = _tool_model_fields(tools["click"])
@@ -136,11 +140,11 @@ def _tool_model_fields(tool: Any) -> dict[str, Any]:
 def test_computer_agent_prompt_mentions_langchain_tool_calling_rules() -> None:
     assert "绑定给你的工具" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "finish_request" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "优先使用 run_command 等命令工具完成任务" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "open_app 和 switch_app 是两步工具" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "take_screenshot -> semantic target -> 单步动作 -> take_screenshot" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "控件类型或可见文本 + 所在窗口/面板/区域 + 布局参照物" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "不要只写过短、孤立、缺少上下文的目标名称" in COMPUTER_AGENT_SYSTEM_PROMPT
-    assert "Get-StartApps" in COMPUTER_AGENT_SYSTEM_PROMPT
+    assert "open_app 和 switch_app 是两步工具" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "只有 examiner accept 才算真正完成" in COMPUTER_AGENT_SYSTEM_PROMPT
     assert "只有 examiner accept 才算真正完成" in TERMINAL_AGENT_SYSTEM_PROMPT
     assert "terminal-only 模式下只会绑定 run_command 与 finish_request" in TERMINAL_AGENT_SYSTEM_PROMPT

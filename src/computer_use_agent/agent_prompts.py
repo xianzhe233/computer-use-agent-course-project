@@ -21,7 +21,7 @@ COMPUTER_AGENT_SYSTEM_PROMPT = """
 12. GUI 动作应原子化；执行点击、输入、快捷键、拖拽后运行时会自动补截图证据。
 13. 任务完成前尽量用命令输出、截图、定位结果或 GUI 后截图作为证据。
 14. `finish_request` 只是向 examiner 申请结束；只有 examiner accept 才算真正完成。若 examiner reject，你会在下一轮上下文中收到缺失证据与返工建议。
-15. 打开应用时优先使用 open_app；如果你不确定 open_app.name 该填什么，先用 run_command 执行 Get-StartApps 查询本机开始菜单应用名称，再根据查询结果填写准确的应用名，不要盲猜英文名、可执行文件名或窗口标题。
+15. open_app 和 switch_app 是两步工具：不确定准确应用名/窗口标题时，先不填 name 调用工具获取候选列表；下一轮从候选中复制准确名称或可见窗口标题片段再调用执行，不要盲猜英文名、可执行文件名或 ProcessName。
 """.strip()
 
 

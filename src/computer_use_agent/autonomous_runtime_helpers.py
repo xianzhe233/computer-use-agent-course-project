@@ -563,11 +563,15 @@ class AutonomousComputerRuntimeHelpers:
         if tool_name == "hotkey":
             gui_result = hotkey(str(decision.tool_args["shortcut"]), backend=self.gui_backend)
         elif tool_name == "open_app":
-            app_name = str(decision.tool_args["name"])
+            app_name = str(decision.tool_args.get("name") or "").strip()
+            if not app_name:
+                return self._discover_open_app_candidates(store=store, step_id=step_id)
             gui_result = open_app(app_name, backend=self.gui_backend)
             state.observation.active_window_title = app_name
         elif tool_name == "switch_app":
-            app_name = str(decision.tool_args["name"])
+            app_name = str(decision.tool_args.get("name") or "").strip()
+            if not app_name:
+                return self._discover_window_candidates(store=store, step_id=step_id)
             gui_result = switch_app(app_name, backend=self.gui_backend)
             state.observation.active_window_title = app_name
         else:
@@ -583,6 +587,60 @@ class AutonomousComputerRuntimeHelpers:
             gui_result=gui_result,
             artifact_refs=[],
         )
+
+    def _discover_open_app_candidates(self, *, store: RunStore, step_id: int) -> tuple[dict[str, Any], list[str]]:
+        command = "Get-StartApps | Select-Object Name, AppID | Sort-Object Name | Format-Table -AutoSize"
+        result = run_command(
+            command=command,
+            timeout_s=self.step_timeout_seconds,
+            cwd=self.workspace,
+            backend=self.command_backend,
+        )
+        artifact_paths = store.write_command_result(step_id=step_id, result=result)
+        return {
+            "tool_name": "open_app",
+            "success": result.success,
+            "result": {
+                "mode": "discovery",
+                "candidate_type": "start_menu_apps",
+                "command": command,
+                "candidates_text": result.stdout,
+                "next_step": "Choose an exact Name from candidates_text and call open_app with that name.",
+            },
+            "error": None if result.success else {"code": "OPEN_APP_DISCOVERY_FAILED", "message": result.stderr or result.stdout},
+            "artifacts": [f"command:{artifact_paths['command_result_id']}"],
+            "note": "Returned Start menu app candidates; call open_app again with an exact name.",
+            "duration_ms": result.duration_ms,
+        }, [f"command:{artifact_paths['command_result_id']}"]
+
+    def _discover_window_candidates(self, *, store: RunStore, step_id: int) -> tuple[dict[str, Any], list[str]]:
+        command = (
+            'Get-Process | Where-Object {$_.MainWindowTitle -ne ""} | '
+            "Select-Object ProcessName, MainWindowTitle | Sort-Object ProcessName, MainWindowTitle | "
+            "Format-Table -AutoSize"
+        )
+        result = run_command(
+            command=command,
+            timeout_s=self.step_timeout_seconds,
+            cwd=self.workspace,
+            backend=self.command_backend,
+        )
+        artifact_paths = store.write_command_result(step_id=step_id, result=result)
+        return {
+            "tool_name": "switch_app",
+            "success": result.success,
+            "result": {
+                "mode": "discovery",
+                "candidate_type": "current_windows",
+                "command": command,
+                "candidates_text": result.stdout,
+                "next_step": "Choose a distinctive visible MainWindowTitle fragment and call switch_app with that fragment.",
+            },
+            "error": None if result.success else {"code": "SWITCH_APP_DISCOVERY_FAILED", "message": result.stderr or result.stdout},
+            "artifacts": [f"command:{artifact_paths['command_result_id']}"],
+            "note": "Returned current window candidates; call switch_app again with a visible title fragment.",
+            "duration_ms": result.duration_ms,
+        }, [f"command:{artifact_paths['command_result_id']}"]
 
     def _execute_wait_tool(self, *, decision: TerminalAgentDecision) -> tuple[dict[str, Any], list[str]]:
         wait_result = wait(self._required_int(decision.tool_args, "seconds"))
@@ -709,6 +767,11 @@ class AutonomousComputerRuntimeHelpers:
                     result_summary = str(tool_error.get("message") or result.get("reason") or "auto locate failed")
         else:
             result_summary = self._generic_gui_result_summary(decision=decision, result=result)
+
+        command_ref = self._artifact_ref(artifact_refs, prefix="command:")
+        if decision.tool_name != "run_command" and command_ref is not None:
+            state.metrics.command_count += 1
+            state.observation.latest_command_result_id = command_ref.split(":", 1)[1]
 
         latest_screenshot_ref = self._artifact_ref(artifact_refs, prefix="screenshot:")
         if latest_screenshot_ref is not None and decision.tool_name not in {"take_screenshot", "view_screenshot"}:
@@ -948,9 +1011,9 @@ class AutonomousComputerRuntimeHelpers:
 
     @staticmethod
     def _validate_named_window_tool(decision: TerminalAgentDecision) -> dict[str, str] | None:
-        name = str(decision.tool_args.get("name", "")).strip()
-        if not name:
-            return {"code": "INVALID_TOOL_ARGS", "message": f"{decision.tool_name} requires name"}
+        name = decision.tool_args.get("name")
+        if name is not None and not isinstance(name, str):
+            return {"code": "INVALID_TOOL_ARGS", "message": f"{decision.tool_name} name must be a string when provided"}
         return None
 
     @staticmethod
@@ -1400,7 +1463,10 @@ class AutonomousComputerRuntimeHelpers:
                 f"to ({drag_result.get('x2')}, {drag_result.get('y2')})"
             )
         if decision.tool_name in {"open_app", "switch_app", "focus_window"}:
-            return str(result.get("result", {}).get("message", "")).strip() or f"{decision.tool_name} executed"
+            detail = result.get("result", {})
+            if isinstance(detail, dict) and detail.get("mode") == "discovery":
+                return str(result.get("note") or detail.get("next_step") or f"{decision.tool_name} candidates returned")
+            return str(detail.get("message", "")).strip() if isinstance(detail, dict) else f"{decision.tool_name} executed"
         return f"{decision.tool_name} executed"
 
     def _resolve_click_coordinates(

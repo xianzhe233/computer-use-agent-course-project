@@ -443,17 +443,20 @@ def _window_and_wait_tool_definitions() -> dict[str, BaseTool]:
         "open_app": _schema_tool(
             name="open_app",
             description=(
-                "Open an application by its local Start menu name. If the exact name is "
-                "unknown, first use run_command with Get-StartApps to discover it."
+                "Two-step app opener. First call open_app without name when the exact local "
+                "Start menu name is unknown; it returns Start menu app candidates. Then call "
+                "open_app again with an exact candidate name to launch it."
             ),
             field_definitions={
                 "name": (
-                    str,
+                    str | None,
                     Field(
+                        default=None,
                         description=(
-                            "Exact local Start menu app name to open, preferably copied from "
-                            "Get-StartApps output instead of guessed from an English alias."
-                        )
+                            "Exact local Start menu app name copied from the previous open_app "
+                            "candidate list. Leave empty on the first call to discover candidates; "
+                            "do not guess English aliases or executable names."
+                        ),
                     ),
                 )
             },
@@ -461,17 +464,21 @@ def _window_and_wait_tool_definitions() -> dict[str, BaseTool]:
         "switch_app": _schema_tool(
             name="switch_app",
             description=(
-                "Switch to an existing application window by app name. Use this when the app "
-                "is already open and you need to bring it forward before acting."
+                "Two-step window switcher. First call switch_app without name when the exact "
+                "visible window title fragment is unknown; it returns current window candidates. "
+                "Then call switch_app again with a distinctive title fragment from that list."
             ),
             field_definitions={
                 "name": (
-                    str,
+                    str | None,
                     Field(
+                        default=None,
                         description=(
-                            "Application name to switch to, using the visible app or process name "
-                            "rather than a vague description."
-                        )
+                            "Visible window title fragment copied from the previous switch_app "
+                            "candidate list, such as 'Edge' or 'Visual Studio Code'. Leave empty "
+                            "on the first call to discover current windows; do not pass ProcessName "
+                            "values like msedge unless they appear in the visible title."
+                        ),
                     ),
                 )
             },

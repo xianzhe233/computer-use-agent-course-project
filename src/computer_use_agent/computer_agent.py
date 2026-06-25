@@ -181,7 +181,7 @@ class LLMComputerAgent:
                     "需要坐标的 GUI 动作优先使用 target_query / start_query / end_query，让 runtime 在内部自动定位",
                     "只有在你拥有可靠坐标证据时才直接填写 x/y",
                     "语义定位失败后不要盲点，应重新截图、等待或换策略",
-                    "如果需要打开应用但不确定本机应用名，先用 run_command 执行 Get-StartApps 查询开始菜单应用名称，再把查到的名称写入 open_app.name",
+                    "open_app 和 switch_app 是两步工具：不确定准确应用名/窗口标题时，先不填 name 调用工具获取候选列表；下一轮从候选中复制准确名称或可见窗口标题片段再调用执行，不要盲猜英文名、可执行文件名或 ProcessName",
                     "当前命令工作目录就是 workspace",
                     "finish_request 之后会进入 examiner 审阅；只有 examiner accept 才算真正完成",
                     "如果 examiner reject，下一轮上下文会带上缺失证据与返工建议，你必须先补证据再考虑再次 finish_request",
