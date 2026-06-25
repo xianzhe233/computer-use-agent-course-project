@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import signal
+import subprocess
+import sys
+import time
 import traceback
 from pathlib import Path
-from collections.abc import Awaitable
-from typing import Any, cast
+from typing import Any
 
 import chainlit as cl
-
-from computer_use_agent.autonomous_runtime import AutonomousComputerRuntime
 
 WORKSPACE = Path(".").resolve()
 RUNS_ROOT = Path("runs").resolve()
@@ -21,9 +23,18 @@ MODEL_CONFIG_CANDIDATES = [
 
 MAX_PAYLOAD_CHARS = 6000
 MAX_LOG_CHARS = 8000
-MAX_PROGRESS_CHARS = 8000
 SENSITIVE_REASONING_KEYS = {"thought", "chain_of_thought", "cot", "raw_reasoning", "raw_response"}
 SUMMARY_REASONING_KEYS = ("thought_summary", "reasoning_summary", "summary", "rationale")
+MAIN_AGENT_AUTHOR = "mainAgent"
+EXAMINER_AUTHOR = "examiner"
+
+
+def author_for_event(event: dict[str, Any]) -> str:
+    actor = str(event.get("actor", ""))
+    event_type = str(event.get("event_type", ""))
+    if actor.lower() == EXAMINER_AUTHOR or EXAMINER_AUTHOR in event_type.lower():
+        return EXAMINER_AUTHOR
+    return MAIN_AGENT_AUTHOR
 
 
 def truncate_text(value: Any, limit: int = MAX_PAYLOAD_CHARS) -> str:
@@ -249,9 +260,9 @@ def commands_for_event(event: dict[str, Any], commands: dict[str, dict[str, Any]
 
 def read_text_artifact(path: Path | None, limit: int = MAX_LOG_CHARS) -> str:
     if path is None:
-        return "N/A"
+        return ""
     if not path.exists():
-        return f"command log file missing: {path}"
+        return f"文件缺失：{path}"
     try:
         return truncate_text(path.read_text(encoding="utf-8", errors="replace"), limit)
     except Exception as exc:
@@ -260,36 +271,31 @@ def read_text_artifact(path: Path | None, limit: int = MAX_LOG_CHARS) -> str:
         return f"无法读取文件：{path} ({type(exc).__name__}: {exc})"
 
 
+def normalize_inline_text(value: Any, limit: int = 800) -> str:
+    text = truncate_text(value, limit)
+    return " ".join(text.replace("\r", "\n").split()) or "无"
+
+
+def bullet(label: str, value: Any, *, limit: int = 800) -> str:
+    return f"- {label}: {normalize_inline_text(value, limit)}"
+
+
 def format_command_log(command: dict[str, Any], run_dir: Path) -> str:
     stdout_path = resolve_artifact_path(command.get("stdout_path"), run_dir, "command_logs")
     stderr_path = resolve_artifact_path(command.get("stderr_path"), run_dir, "command_logs")
-    return "\n".join(
-        [
-            "#### Command Log",
-            "",
-            "```bash",
-            truncate_text(str(command.get("command", "N/A")), 2000),
-            "```",
-            "",
-            "#### Exit code",
-            "",
-            "```text",
-            str(command.get("exit_code", "N/A")),
-            "```",
-            "",
-            "#### Stdout",
-            "",
-            "```text",
-            read_text_artifact(stdout_path),
-            "```",
-            "",
-            "#### Stderr",
-            "",
-            "```text",
-            read_text_artifact(stderr_path),
-            "```",
-        ]
-    )
+    stdout = read_text_artifact(stdout_path, 1000)
+    stderr = read_text_artifact(stderr_path, 1000)
+    parts = [
+        "#### 命令结果",
+        bullet("命令", command.get("command", "N/A"), limit=1200),
+        bullet("退出码", command.get("exit_code", "N/A"), limit=80),
+        bullet("耗时", f"{command.get('duration_ms', 'N/A')} ms", limit=80),
+    ]
+    if stdout:
+        parts.append(bullet("输出", stdout, limit=1000))
+    if stderr:
+        parts.append(bullet("错误输出", stderr, limit=1000))
+    return "\n".join(parts)
 
 
 def format_summary(run_id: str, run_dir: Path, summary: dict[str, Any]) -> str:
@@ -317,6 +323,66 @@ def format_summary(run_id: str, run_dir: Path, summary: dict[str, Any]) -> str:
 """
 
 
+def format_tool_args(args: Any) -> list[str]:
+    if not isinstance(args, dict) or not args:
+        return []
+    labels = {
+        "command": "命令",
+        "name": "名称",
+        "text": "文本",
+        "target_query": "目标",
+        "screenshot_ids": "截图",
+        "keys": "按键",
+        "seconds": "等待",
+        "direction": "方向",
+        "amount": "距离",
+        "x": "X",
+        "y": "Y",
+    }
+    lines: list[str] = []
+    for key, value in args.items():
+        if key in {"thought_summary", "expected_observation"}:
+            continue
+        label = labels.get(str(key), str(key))
+        limit = 1200 if key in {"command", "text"} else 500
+        lines.append(bullet(label, value, limit=limit))
+    return lines
+
+
+def format_tool_result(result: dict[str, Any]) -> list[str]:
+    lines = [bullet("结果", "成功" if result.get("success") else "失败", limit=80)]
+    tool_name = result.get("tool_name")
+    if tool_name:
+        lines.append(bullet("工具", tool_name, limit=120))
+    detail = result.get("result") if isinstance(result.get("result"), dict) else {}
+    if isinstance(detail, dict) and detail.get("mode") == "discovery":
+        lines.append(bullet("模式", "候选发现", limit=120))
+        lines.append(bullet("候选类型", detail.get("candidate_type", "N/A"), limit=120))
+        if detail.get("candidates_text"):
+            lines.append(bullet("候选列表", detail.get("candidates_text"), limit=2000))
+        if detail.get("next_step"):
+            lines.append(bullet("下一步", detail.get("next_step"), limit=1000))
+    elif isinstance(detail, dict) and detail.get("message"):
+        lines.append(bullet("说明", detail.get("message"), limit=1000))
+    if result.get("command"):
+        lines.append(bullet("命令", result.get("command"), limit=1200))
+    if "exit_code" in result:
+        lines.append(bullet("退出码", result.get("exit_code"), limit=80))
+    if "duration_ms" in result:
+        lines.append(bullet("耗时", f"{result.get('duration_ms')} ms", limit=80))
+    if result.get("note"):
+        lines.append(bullet("说明", result.get("note"), limit=800))
+    if result.get("stdout"):
+        lines.append(bullet("输出", result.get("stdout"), limit=1000))
+    if result.get("stderr"):
+        lines.append(bullet("错误输出", result.get("stderr"), limit=1000))
+    if result.get("path"):
+        lines.append(bullet("文件", result.get("path"), limit=1000))
+    if result.get("error"):
+        lines.append(bullet("错误", result.get("error"), limit=1000))
+    return lines
+
+
 def format_examiner_event(event: dict[str, Any]) -> str:
     payload = event.get("payload") or {}
     action = payload.get("action") if isinstance(payload, dict) else {}
@@ -331,63 +397,216 @@ def format_examiner_event(event: dict[str, Any]) -> str:
     questions = action.get("remaining_questions") or result.get("remaining_questions") or []
     return "\n".join(
         [
-            "### Examiner Review",
+            f"### Step {event.get('step_id', 'N/A')} · 验收检查",
             "",
-            f"- Step: `{event.get('step_id', 'N/A')}`",
-            f"- Examiner step: `{payload.get('examiner_step', 'N/A') if isinstance(payload, dict) else 'N/A'}`",
-            f"- Decision: `{decision}`",
-            f"- Status: `{event.get('status', 'N/A')}`",
-            f"- Time: `{event.get('timestamp', 'N/A')}`",
-            f"- Reason: {reason}",
-            f"- Missing evidence: {truncate_text(missing, 1200)}",
-            f"- Suggested next step: {truncate_text(next_steps, 1200)}",
-            f"- Observed findings: {truncate_text(findings, 1200)}",
-            f"- Remaining questions: {truncate_text(questions, 1200)}",
-            "",
-            "#### Payload",
-            "",
-            "```json",
-            truncate_text(sanitize_payload(payload), MAX_PAYLOAD_CHARS),
-            "```",
+            bullet("结论", decision, limit=120),
+            bullet("状态", event.get("status", "N/A"), limit=120),
+            bullet("原因", reason, limit=1200),
+            bullet("缺少证据", missing, limit=1200),
+            bullet("下一步建议", next_steps, limit=1200),
+            bullet("已确认", findings, limit=1200),
+            bullet("仍有疑问", questions, limit=1200),
         ]
     )
+
+
+def should_render_event(event: dict[str, Any]) -> bool:
+    event_type = str(event.get("event_type", ""))
+    return event_type not in {"tool_validation", "state_update"}
 
 
 def format_event(event: dict[str, Any], commands: dict[str, dict[str, Any]], run_dir: Path) -> str:
     if event.get("_warning"):
         return f"### Trace Warning\n\n{event['_warning']}"
+    if not should_render_event(event):
+        return ""
 
-    actor = event.get("actor", "unknown")
-    event_type = event.get("event_type", "event")
-    if str(actor).lower() == "examiner" or "examiner" in str(event_type).lower():
-        content = format_examiner_event(event)
-    else:
-        payload = event.get("payload", {})
-        thought_summary = extract_thought_summary(payload)
-        parts = [
-            f"### Step {event.get('step_id', 'N/A')} · `{actor}` · `{event_type}`",
-            "",
-            f"- Phase: `{event.get('phase', 'N/A')}`",
-            f"- Status: `{event.get('status', 'N/A')}`",
-            f"- Time: `{event.get('timestamp', 'N/A')}`",
-        ]
-        if thought_summary:
-            parts.extend(["", "#### Thought Summary", "", thought_summary])
-        parts.extend(
+    actor = str(event.get("actor", "unknown"))
+    event_type = str(event.get("event_type", "event"))
+    payload = event.get("payload", {})
+    payload = payload if isinstance(payload, dict) else {}
+
+    if actor.lower() == "examiner" or "examiner" in event_type.lower():
+        return format_examiner_event(event)
+
+    if event_type == "run_initialized":
+        return "\n".join(
             [
+                "### 运行开始",
                 "",
-                "#### Payload",
-                "",
-                "```json",
-                truncate_text(sanitize_payload(payload), MAX_PAYLOAD_CHARS),
-                "```",
+                bullet("任务", payload.get("task", "N/A"), limit=1200),
+                bullet("工作目录", payload.get("workspace", "N/A"), limit=1000),
+                bullet("模式", payload.get("mode", "N/A"), limit=120),
             ]
         )
-        content = "\n".join(parts)
 
-    for command in commands_for_event(event, commands):
-        content += "\n\n" + format_command_log(command, run_dir)
-    return content
+    if event_type == "initial_observation":
+        raw_result = payload.get("result")
+        result: dict[str, Any] = raw_result if isinstance(raw_result, dict) else {}
+        return "\n".join(
+            [
+                f"### Step {event.get('step_id', 'N/A')} · 初始观察",
+                "",
+                bullet("说明", payload.get("description", "初始截图"), limit=500),
+                bullet("截图", result.get("screenshot_id", "N/A"), limit=120),
+                bullet("分辨率", f"{result.get('width', 'N/A')}x{result.get('height', 'N/A')}", limit=120),
+            ]
+        )
+
+    if event_type == "agent_decision":
+        tool_name = payload.get("tool_name") or payload.get("kind") or "N/A"
+        parts = [
+            f"### Step {event.get('step_id', 'N/A')} · Agent 计划",
+            "",
+            bullet("意图", extract_thought_summary(payload) or "未提供", limit=1200),
+            bullet("工具", tool_name, limit=120),
+        ]
+        parts.extend(format_tool_args(payload.get("tool_args")))
+        expected = payload.get("expected_observation")
+        if expected:
+            parts.append(bullet("预期观察", expected, limit=1000))
+        return "\n".join(parts)
+
+    if event_type == "tool_execution":
+        raw_result = payload.get("result")
+        result = raw_result if isinstance(raw_result, dict) else {}
+        tool_name = result.get("tool_name") or result.get("action_type") or "工具"
+        parts = [f"### Step {event.get('step_id', 'N/A')} · {tool_name} 执行结果", ""]
+        parts.extend(format_tool_result(result))
+        if not result:
+            for command in commands_for_event(event, commands):
+                parts.extend(["", format_command_log(command, run_dir)])
+        return "\n".join(parts)
+
+    if event_type == "finish_request":
+        return "\n".join(
+            [
+                f"### Step {event.get('step_id', 'N/A')} · 请求验收",
+                "",
+                bullet("完成说明", payload.get("completion_claim", "N/A"), limit=1200),
+                bullet("支持证据", payload.get("supporting_evidence", []), limit=1200),
+                bullet("不确定点", payload.get("remaining_uncertainty", "无"), limit=1200),
+            ]
+        )
+
+    if event_type == "termination":
+        return "\n".join(
+            [
+                "### 运行终止",
+                "",
+                bullet("状态", payload.get("status", event.get("status", "N/A")), limit=120),
+                bullet("原因", payload.get("reason", "N/A"), limit=1200),
+            ]
+        )
+
+    return "\n".join(
+        [
+            f"### Step {event.get('step_id', 'N/A')} · {event_type}",
+            "",
+            bullet("角色", actor, limit=120),
+            bullet("状态", event.get("status", "N/A"), limit=120),
+        ]
+    )
+
+
+def iter_run_directories(runs_root: Path) -> list[Path]:
+    if not runs_root.exists():
+        return []
+    try:
+        directories = [path for path in runs_root.iterdir() if path.is_dir() and path.name.startswith("run_")]
+    except OSError:
+        return []
+    return sorted(directories, key=lambda path: path.name)
+
+
+
+def discover_run_id_from_files(runs_root: Path, known_run_ids: set[str], started_at: float) -> str | None:
+    candidates: list[tuple[float, str]] = []
+    for path in iter_run_directories(runs_root):
+        if path.name in known_run_ids:
+            continue
+        try:
+            modified_at = path.stat().st_mtime
+        except OSError:
+            continue
+        if modified_at + 1 < started_at:
+            continue
+        candidates.append((modified_at, path.name))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1]
+
+
+
+def event_render_key(event: dict[str, Any]) -> str:
+    event_id = event.get("event_id")
+    if event_id:
+        return str(event_id)
+    return json.dumps(event, ensure_ascii=False, sort_keys=True)
+
+
+
+def format_live_status(
+    task: str,
+    run_id: str,
+    run_dir: Path,
+    artifacts: dict[str, Any],
+    *,
+    is_done: bool,
+) -> str:
+    summary = artifacts["summary"]
+    trace = artifacts["trace"]
+    screenshots = artifacts["screenshots"]
+    commands = artifacts["commands"]
+
+    latest_event: dict[str, Any] | None = None
+    current_step = 0
+    examiner_reviews = 0
+    for item in trace:
+        if not isinstance(item, dict) or item.get("_warning"):
+            continue
+        latest_event = item
+        if str(item.get("actor", "")).lower() == "examiner" or "examiner" in str(item.get("event_type", "")).lower():
+            examiner_reviews += 1
+        try:
+            current_step = max(current_step, int(item.get("step_id", 0) or 0))
+        except (TypeError, ValueError):
+            continue
+
+    final_status = None
+    final_reason = None
+    if isinstance(summary, dict) and summary and not summary.get("_error"):
+        final_status = summary.get("final_status")
+        final_reason = summary.get("final_reason")
+
+    latest_actor = latest_event.get("actor", "N/A") if latest_event else "N/A"
+    latest_event_type = latest_event.get("event_type", "N/A") if latest_event else "N/A"
+    latest_phase = latest_event.get("phase", "N/A") if latest_event else "N/A"
+    latest_time = latest_event.get("timestamp", "N/A") if latest_event else "N/A"
+    live_status = str(final_status or ("completed" if is_done else "running"))
+
+    parts = [
+        "## Run Status",
+        "",
+        f"- Task: {truncate_text(task, 600)}",
+        f"- Run ID: `{run_id}`",
+        f"- Run dir: `{run_dir}`",
+        f"- Status: `{live_status}`",
+        f"- Current step: `{current_step}`",
+        f"- Trace events: `{len(trace)}`",
+        f"- Commands: `{len(commands)}`",
+        f"- Screenshots: `{len(screenshots)}`",
+        f"- Examiner reviews: `{examiner_reviews}`",
+        f"- Latest event: `{latest_actor}` · `{latest_event_type}`",
+        f"- Latest phase: `{latest_phase}`",
+        f"- Latest update: `{latest_time}`",
+    ]
+    if final_reason:
+        parts.append(f"- Summary: {final_reason}")
+    elif is_done:
+        parts.append("- Summary: 运行已结束，等待最终汇总落盘。")
+    return "\n".join(parts)
 
 
 async def render_run(run_id: str, runs_root: Path = RUNS_ROOT) -> None:
@@ -411,38 +630,192 @@ async def render_run(run_id: str, runs_root: Path = RUNS_ROOT) -> None:
 
     for event in trace:
         content = format_event(event, commands, run_dir)
+        if not content:
+            continue
         images, warnings = images_for_event(event, run_dir, screenshots)
         if warnings:
             content += "\n\n#### Artifact Warnings\n\n" + "\n".join(f"- {item}" for item in warnings)
-        await cl.Message(content=content, elements=images).send()
+        await cl.Message(content=content, elements=images, author=author_for_event(event)).send()
 
     final_reason = summary.get("final_reason") if isinstance(summary, dict) else "N/A"
     final_status = summary.get("final_status") if isinstance(summary, dict) else "N/A"
-    await cl.Message(content=f"## Final Result\n\n- Status: `{final_status or 'N/A'}`\n- Summary: {final_reason or 'N/A'}").send()
+    await cl.Message(
+        content=f"## Final Result\n\n- Status: `{final_status or 'N/A'}`\n- Summary: {final_reason or 'N/A'}",
+    ).send()
 
 
-def build_runtime(progress_callback=None) -> AutonomousComputerRuntime:
+async def stream_run_updates(
+    task: str,
+    run_future: asyncio.Future[Any],
+    status_message: cl.Message,
+    *,
+    known_run_ids: set[str],
+    started_at: float,
+) -> str | None:
+    run_id: str | None = None
+    overview_message: cl.Message | None = None
+    final_message: cl.Message | None = None
+    last_overview_content = ""
+    sent_event_ids: set[str] = set()
+
+    while True:
+        if run_id is None:
+            run_id = discover_run_id_from_files(RUNS_ROOT, known_run_ids, started_at)
+            if run_id is not None:
+                status_message.content = (
+                    "任务运行中，正在根据运行文件实时渲染。\n\n"
+                    f"- Run ID: `{run_id}`"
+                )
+                await status_message.update()
+
+        if run_id is not None:
+            run_dir = RUNS_ROOT / run_id
+            artifacts = load_run_artifacts(run_dir)
+            overview_content = format_live_status(
+                task,
+                run_id,
+                run_dir,
+                artifacts,
+                is_done=run_future.done(),
+            )
+            if overview_message is None:
+                overview_message = cl.Message(content=overview_content)
+                await overview_message.send()
+                last_overview_content = overview_content
+            elif overview_content != last_overview_content:
+                overview_message.content = overview_content
+                await overview_message.update()
+                last_overview_content = overview_content
+
+            for event in artifacts["trace"]:
+                event_key = event_render_key(event)
+                if event_key in sent_event_ids:
+                    continue
+                content = format_event(event, artifacts["commands"], run_dir)
+                if not content:
+                    sent_event_ids.add(event_key)
+                    continue
+                images, warnings = images_for_event(event, run_dir, artifacts["screenshots"])
+                if warnings:
+                    content += "\n\n#### Artifact Warnings\n\n" + "\n".join(f"- {item}" for item in warnings)
+                await cl.Message(content=content, elements=images, author=author_for_event(event)).send()
+                sent_event_ids.add(event_key)
+
+            if run_future.done():
+                if cl.user_session.get("agent_stop_requested"):
+                    status_message.content = f"任务已停止，后台 agent 进程已终止。Run ID: `{run_id}`"
+                    await status_message.update()
+                    return run_id
+                summary = artifacts["summary"]
+                if overview_message is not None:
+                    final_overview = format_summary(run_id, run_dir, summary)
+                    if final_overview != last_overview_content:
+                        overview_message.content = final_overview
+                        await overview_message.update()
+                final_reason = summary.get("final_reason") if isinstance(summary, dict) else "N/A"
+                final_status = summary.get("final_status") if isinstance(summary, dict) else "N/A"
+                final_content = (
+                    "## Final Result\n\n"
+                    f"- Status: `{final_status or 'N/A'}`\n"
+                    f"- Summary: {final_reason or 'N/A'}"
+                )
+                if final_message is None:
+                    final_message = cl.Message(content=final_content)
+                    await final_message.send()
+                else:
+                    final_message.content = final_content
+                    await final_message.update()
+                status_message.content = f"Agent 运行结束。Run ID: `{run_id}`"
+                await status_message.update()
+                return run_id
+
+        if run_future.done():
+            return None
+        await asyncio.sleep(1)
+
+
+def build_agent_command(task: str) -> list[str]:
     model_config = resolve_model_config()
     if model_config is None:
         tried = ", ".join(str(path) for path in MODEL_CONFIG_CANDIDATES)
         raise FileNotFoundError(f"找不到模型配置文件，已尝试：{tried}")
-    return AutonomousComputerRuntime(
-        workspace=WORKSPACE,
-        runs_root=RUNS_ROOT,
-        max_steps=50,
-        step_timeout_seconds=180,
-        model_config_path=model_config,
-        model_role="mainAgent",
-        progress_callback=progress_callback,
+    return [
+        sys.executable,
+        "-m",
+        "computer_use_agent.cli",
+        task,
+        "--mode",
+        "autonomous",
+        "--workspace",
+        str(WORKSPACE),
+        "--runs-root",
+        str(RUNS_ROOT),
+        "--max-steps",
+        "50",
+        "--step-timeout",
+        "180",
+        "--model-config",
+        str(model_config),
+        "--model-role",
+        "mainAgent",
+        "--quiet",
+    ]
+
+
+async def start_agent_process(task: str) -> asyncio.subprocess.Process:
+    creationflags = 0
+    preexec_fn = None
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        preexec_fn = getattr(os, "setsid", None)
+    command = build_agent_command(task)
+    return await asyncio.create_subprocess_exec(
+        *command,
+        cwd=str(WORKSPACE),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        creationflags=creationflags,
+        preexec_fn=preexec_fn,
     )
 
 
-def extract_run_id(state: Any) -> str:
-    run = getattr(state, "run", None)
-    run_id = getattr(run, "run_id", None) if run is not None else None
-    if not run_id:
-        run_id = getattr(state, "run_id", None)
-    return str(run_id or "")
+def current_agent_process() -> asyncio.subprocess.Process | None:
+    process = cl.user_session.get("agent_process")
+    return process if isinstance(process, asyncio.subprocess.Process) else None
+
+
+async def terminate_process_tree(process: asyncio.subprocess.Process | None) -> None:
+    if process is None or process.returncode is not None:
+        return
+    pid = process.pid
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True, text=True)
+    else:
+        try:
+            killpg = getattr(os, "killpg")
+            getpgid = getattr(os, "getpgid")
+            killpg(getpgid(pid), signal.SIGTERM)
+        except ProcessLookupError:
+            return
+    try:
+        await asyncio.wait_for(process.wait(), timeout=5)
+    except asyncio.TimeoutError:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True, text=True)
+        else:
+            killpg = getattr(os, "killpg")
+            getpgid = getattr(os, "getpgid")
+            sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
+            killpg(getpgid(pid), sigkill)
+        await process.wait()
+
+
+async def wait_for_agent_process(process: asyncio.subprocess.Process) -> dict[str, Any]:
+    stdout_bytes, stderr_bytes = await process.communicate()
+    stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+    stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+    return {"returncode": process.returncode, "stdout": stdout, "stderr": stderr}
 
 
 @cl.on_chat_start
@@ -450,7 +823,7 @@ async def on_chat_start() -> None:
     await cl.Message(
         content=(
             "输入一个电脑使用任务，系统会启动 agent 执行，"
-            "并在结束后展示 summary、trace、命令日志、examiner 检查和截图。\n\n"
+            "并在运行时基于 `runs/` 目录实时解析展示 summary、trace、命令日志、examiner 检查和截图。\n\n"
             "提示：前端试用时请不要使用 `-w/--watch` 启动，"
             "否则 `runs/` 目录写入可能触发页面 reload。"
         )
@@ -464,55 +837,53 @@ async def on_message(message: cl.Message) -> None:
         await cl.Message(content="任务不能为空，请输入一个具体的电脑使用任务。").send()
         return
 
-    progress_lines: list[str] = []
-    progress_message = cl.Message(content=f"任务已启动：\n\n> {task}\n\nAgent 正在运行，请等待...")
+    progress_message = cl.Message(content=f"任务已提交：\n\n> {task}\n\n正在等待运行文件创建...")
     await progress_message.send()
 
-    def progress_callback(text: str) -> None:
-        line = str(text)
-        progress_lines.append(line)
-        print(line, flush=True)
-
-    async def refresh_progress_until_done(task_future: asyncio.Future[Any]) -> None:
-        last_rendered = ""
-        while not task_future.done():
-            if progress_lines:
-                recent_progress = truncate_text("\n".join(progress_lines[-30:]), MAX_PROGRESS_CHARS)
-                content = (
-                    f"任务运行中：\n\n> {task}\n\n"
-                    "最近进度：\n\n```text\n"
-                    f"{recent_progress}\n```"
-                )
-                if content != last_rendered:
-                    progress_message.content = content
-                    await progress_message.update()
-                    last_rendered = content
-            await asyncio.sleep(1)
-
+    process: asyncio.subprocess.Process | None = None
     try:
-        runtime = build_runtime(progress_callback=progress_callback)
-        run_future: asyncio.Future[Any] = asyncio.ensure_future(
-            cast(Awaitable[Any], cl.make_async(runtime.run)(task))
+        cl.user_session.set("agent_stop_requested", False)
+        known_run_ids = {path.name for path in iter_run_directories(RUNS_ROOT)}
+        started_at = time.time()
+        process = await start_agent_process(task)
+        cl.user_session.set("agent_process", process)
+        process_future: asyncio.Future[Any] = asyncio.ensure_future(wait_for_agent_process(process))
+        streamed_run_id = await stream_run_updates(
+            task,
+            process_future,
+            progress_message,
+            known_run_ids=known_run_ids,
+            started_at=started_at,
         )
-        await refresh_progress_until_done(run_future)
-        state = await run_future
-        run_id = extract_run_id(state)
-        if not run_id:
-            await cl.Message(content="Agent 运行结束，但无法从返回 state 中找到 run_id。请检查 runtime.run() 返回结构。").send()
-            return
-
-        progress_message.content = f"Agent 运行结束。Run ID: `{run_id}`"
-        await progress_message.update()
-
-        if progress_lines:
+        result = await process_future
+        stop_requested = bool(cl.user_session.get("agent_stop_requested"))
+        if stop_requested:
+            progress_message.content = "任务已停止，后台 agent 进程已终止。"
+            await progress_message.update()
+        elif result["returncode"] not in (0, None):
+            stderr = truncate_text(result["stderr"], 2000)
+            stdout = truncate_text(result["stdout"], 2000)
             await cl.Message(
-                content="## Runtime Progress\n\n```text\n"
-                + truncate_text("\n".join(progress_lines), MAX_PROGRESS_CHARS)
-                + "\n```"
+                content=(
+                    "Agent 进程已结束但返回失败状态。\n\n"
+                    f"- Exit code: `{result['returncode']}`\n"
+                    f"- Stdout: `{stdout or 'N/A'}`\n"
+                    f"- Stderr: `{stderr or 'N/A'}`"
+                ),
             ).send()
-
-        await render_run(run_id)
+        if streamed_run_id is None:
+            await cl.Message(
+                content="Agent 运行结束，但未能发现新的 run 目录，请检查 CLI 输出或运行日志。",
+            ).send()
+    except asyncio.CancelledError:
+        cl.user_session.set("agent_stop_requested", True)
+        await terminate_process_tree(process or current_agent_process())
+        cl.user_session.set("agent_process", None)
+        progress_message.content = "任务已停止，后台 agent 进程已终止。"
+        await progress_message.update()
+        raise
     except Exception as exc:
+        await terminate_process_tree(process or current_agent_process())
         traceback.print_exc()
         await cl.Message(
             content=(
@@ -520,5 +891,16 @@ async def on_message(message: cl.Message) -> None:
                 f"- 错误类型：`{type(exc).__name__}`\n"
                 f"- 错误信息：`{str(exc)}`\n\n"
                 "请检查模型配置、依赖安装和运行环境。"
-            )
+            ),
         ).send()
+    finally:
+        cl.user_session.set("agent_process", None)
+
+
+@cl.on_stop
+async def on_stop() -> None:
+    cl.user_session.set("agent_stop_requested", True)
+    process = current_agent_process()
+    await terminate_process_tree(process)
+    cl.user_session.set("agent_process", None)
+    await cl.Message(content="已收到停止请求，后台 agent 进程已终止。").send()

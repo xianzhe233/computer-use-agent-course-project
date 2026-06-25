@@ -45,7 +45,9 @@ uv run chainlit run src/computer_use_agent/ui_chainlit.py
 chainlit run src/computer_use_agent/ui_chainlit.py
 ```
 
-打开浏览器中的本地地址后，输入任务即可启动 agent。运行结束后，页面会展示本次 run 的 summary、trace、命令日志、examiner 检查和截图。
+打开浏览器中的本地地址后，输入任务即可启动 agent。页面会在运行过程中直接解析 `runs/<run_id>/` 下的 `trace.jsonl`、`command_logs/`、`screenshots/` 与最终 `summary.json`，以中文摘要时间线动态展示本次 run 的状态、agent 计划、工具执行结果、examiner 检查和截图；默认不展示原始 payload/trace JSON，也不再显示单独的实时终端黑框。
+
+前端会将每次 agent 任务作为独立子进程启动；点击页面停止按钮时，会终止后台 agent 进程树，避免 agent 在前端停止后继续执行。
 
 试用前端时不建议加 `-w/--watch`，因为 agent 运行时会持续写入 `runs/`，监听模式可能触发 Chainlit reload，干扰长任务执行。
 

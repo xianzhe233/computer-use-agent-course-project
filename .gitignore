@@ -7,6 +7,11 @@ config/models.local.json
 __pycache__/
 *.pyc
 runs/
+.files/
+.playwright-cli/
+tmp/
+.chainlit/
+chainlit.md
 delivery-docs/
 /researchers.xlsx
 /add_lecun*.py
